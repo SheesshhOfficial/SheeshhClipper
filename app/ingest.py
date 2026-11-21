@@ -33,7 +33,7 @@ LIVE_FORMAT = (
     "bv[protocol*=m3u8][height<=720]+ba[protocol*=m3u8]/"
     "b[protocol*=m3u8]/bv[protocol*=m3u8]+ba[protocol*=m3u8]"
 )
-submit_live_analysis = None
+submit_auto_analysis = None
 
 
 def canonical_youtube(value: str) -> str:
@@ -179,6 +179,24 @@ def wait_cancel(process, stop, *, on_poll=None):
     return process.returncode
 
 
+def request_auto_analysis(source_id: str, *, live: bool = False) -> dict:
+    """Bridge an opt-in import to the local analysis worker without impairing ingest."""
+    if submit_auto_analysis is None:
+        return {"analysis_note": "Automatic analysis is unavailable. You can still edit this source."}
+    try:
+        job = submit_auto_analysis(source_id, clip_length=20 if live else 30, count=2 if live else 3,
+                                   visual_motion=not live, queue_if_busy=not live)
+        return {"analysis_id": job["id"]}
+    except HTTPException as exc:
+        if live and exc.status_code == 409:
+            return {"analysis_note": "Analysis busy; open this source and analyze it manually."}
+        if exc.status_code in (409, 429):
+            return {"analysis_note": "Analysis queue is full; open this source and analyze it manually."}
+    except Exception:
+        pass
+    return {"analysis_note": "Automatic analysis could not start. Your source was saved."}
+
+
 def publish(root, job, path):
     if any(row["name"] == path.name for row in job["outputs"]):
         return
@@ -202,14 +220,8 @@ def publish(root, job, path):
     media.write_record(target.with_suffix(".json"), {"id": id, "name": name,
                       "url": f"/api/sources/{id}/media", **info})
     output = {"name": path.name, "source_id": id, "url": f"/api/ingest/{job['id']}/files/{path.name}"}
-    if job["kind"] == "live" and job.get("auto_analyze") and submit_live_analysis:
-        try:
-            output["analysis_id"] = submit_live_analysis(id, clip_length=20, count=2)["id"]
-        except HTTPException as exc:
-            output["analysis_note"] = ("Analysis busy; open this source and analyze it manually."
-                                       if exc.status_code == 409 else "Auto analysis could not start.")
-        except Exception:
-            output["analysis_note"] = "Auto analysis could not start."
+    if job.get("auto_analyze"):
+        output.update(request_auto_analysis(id, live=job["kind"] == "live"))
     with LOCK:
         active_stop = ACTIVE.get((root, job["id"]))
         if active_stop and active_stop.is_set():
@@ -347,8 +359,6 @@ def start(request: Ingest):
         url = canonical_youtube(request.url)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    if request.kind != "live" and request.auto_analyze:
-        raise HTTPException(422, "Automatic segment analysis is available for live capture only")
     root = media.root()
     id = media.media_id()
     job = {"id": id, "url": url, "kind": request.kind, "auto_analyze": request.auto_analyze, "status": "queued",

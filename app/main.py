@@ -7,7 +7,7 @@ import re
 import subprocess
 from urllib.parse import urlsplit
 from typing import Literal
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -171,7 +171,7 @@ def diagnostics():
             "render_busy": RENDER_LOCK.locked(), "binding": "local-only"}
 
 @app.post("/api/sources")
-def upload(file: UploadFile = File(...)):
+def upload(file: UploadFile = File(...), auto_analyze: bool = Form(False)):
     name = (file.filename or "").replace("\\", "/").split("/")[-1].strip()
     if not name.lower().endswith(".mp4"):
         raise HTTPException(415, "Upload a local MP4 file")
@@ -188,7 +188,10 @@ def upload(file: UploadFile = File(...)):
         temporary.replace(target)
         data = {"id": id, "name": name, "url": f"/api/sources/{id}/media", **info}
         media.write_record(folder / (id + ".json"), data)
-        return source_public(data)
+        result = source_public(data)
+        if auto_analyze:
+            result.update(ingest.request_auto_analysis(id))
+        return result
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, KeyError, ValueError, StopIteration) as exc:
         raise HTTPException(422, "Could not read a playable MP4 video") from exc
     except OSError as exc:
@@ -272,7 +275,7 @@ def generate_auto_draft(source_id: str, suggestion: dict):
     return store_render(edit, lock=False)
 
 analysis_router = make_analysis_router(RENDER_LOCK, draft_callback=generate_auto_draft)
-ingest.submit_live_analysis = analysis_router.submit_local_analysis
+ingest.submit_auto_analysis = analysis_router.submit_local_analysis
 app.include_router(ingest.router)
 app.include_router(analysis_router)
 

@@ -349,7 +349,11 @@ $('import-file').addEventListener('change',async()=>{
   const f=$('import-file').files[0];$('import-file').value='';if(!f||state.busy)return;
   state.busy=true;updateControls();announce('Importing '+f.name+'…',false,true);
   const body=new FormData();body.append('file',f);
-  try{const newSource=await api('/api/sources',{method:'POST',body});await sources(newSource.id);announce('Source imported.');}
+  if($('auto-analyze').checked)body.append('auto_analyze','true');
+  try{
+    const newSource=await api('/api/sources',{method:'POST',body});await sources(newSource.id);
+    announce(newSource.analysis_id?'Source imported. Local highlight analysis queued.':newSource.analysis_note?'Source imported. '+newSource.analysis_note:'Source imported.');
+  }
   catch(e){announce(e.message,true);} finally{state.busy=false;updateControls();}
 });
 async function render(kind){

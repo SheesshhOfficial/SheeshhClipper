@@ -1,7 +1,7 @@
 """Local highlight analysis and opt-in speech transcription."""
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from html import escape
 from importlib.util import find_spec
 import json
@@ -26,6 +26,7 @@ from . import media
 IDENTIFIER = re.compile(r"[0-9a-f]{32}")
 ASSEMBLY_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
 ASSEMBLY_API = "https://api.assemblyai.com"
+MAX_PENDING_LOCAL = 4
 LANGUAGE = Literal["english", "hinglish"]
 PROVIDER = Literal["audio", "whisper", "assemblyai"]
 
@@ -473,6 +474,8 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
     router = APIRouter(prefix="/api/analysis")
     active = set()
     guard = Lock()
+    pending: deque[tuple[dict, AnalysisRequest, Path, Path, float]] = deque()
+    dispatcher_running = False
 
     def save(job: dict, folder: Path):
         job["updated_at"] = time()
@@ -481,7 +484,11 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
     def public(job: dict) -> dict:
         with guard:
             if job["status"] in {"queued", "running"} and job["id"] not in active:
-                return {**job, "status": "interrupted", "message": "The app restarted during this analysis. Start another analysis to try again."}
+                # The original read may have raced the final write. Recheck
+                # before treating a nonterminal job as left over after restart.
+                job = _read_job(job["id"])
+                if job["status"] in {"queued", "running"}:
+                    return {**job, "status": "interrupted", "message": "The app restarted during this analysis. Start another analysis to try again."}
         return job
 
     def execute(job: dict, spec: AnalysisRequest, folder: Path, source: Path, duration: float):
@@ -554,14 +561,31 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
                 active.discard(job["id"])
             heavy_lock.release()
 
+    def drain_pending():
+        """One dispatcher sleeps on the shared lock while queued jobs wait."""
+        nonlocal dispatcher_running
+        while True:
+            with guard:
+                if not pending:
+                    dispatcher_running = False
+                    return
+            # Never wait for the heavy lock while holding guard: the
+            # currently running analysis needs guard to finish.
+            heavy_lock.acquire()
+            with guard:
+                args = pending.popleft()
+            execute(*args)  # always releases heavy_lock
+
     @router.get("/providers")
     def available_providers():
         return providers()
 
-    @router.post("", status_code=202)
-    def start_analysis(spec: AnalysisRequest):
+    def submit(spec: AnalysisRequest, *, queue_if_busy: bool = False) -> dict:
+        nonlocal dispatcher_running
         if spec.provider == "assemblyai" and not spec.allow_cloud:
             raise HTTPException(400, "Confirm sending this source audio to AssemblyAI for this run")
+        if queue_if_busy and spec.provider != "audio":
+            raise HTTPException(400, "Only keyless local analysis can be queued")
         if not providers()[spec.provider]["available"]:
             raise HTTPException(503, "The selected transcription provider is not configured")
         originals = media.root() / "originals"
@@ -575,28 +599,52 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
         duration = float(data["duration"])
         if not math.isfinite(duration) or duration <= 0:
             raise HTTPException(422, "Invalid source duration")
-        if not heavy_lock.acquire(blocking=False):
-            raise HTTPException(409, "A render or analysis is already running")
         job_id = media.media_id()
         job = {"id": job_id, "source_id": spec.source_id, "provider": spec.provider,
                "language": spec.language, "visual_motion": spec.visual_motion,
                "status": "queued", "message": "Analysis queued",
                "duration": duration, "created_at": time(), "suggestions": [], "captions": [],
                "captions_url": f"/api/analysis/{job_id}/captions.vtt", "warnings": []}
-        try:
-            folder = analysis_dir()
-            save(job, folder)
-            response = dict(job)
-            with guard:
+        with guard:
+            # Honor waiting jobs first even if the shared lock was just released.
+            immediate = not pending and heavy_lock.acquire(blocking=False)
+            if not immediate and not queue_if_busy:
+                raise HTTPException(409, "A render or analysis is already running")
+            if not immediate and len(pending) >= MAX_PENDING_LOCAL:
+                raise HTTPException(409, "The local analysis queue is full")
+            if not immediate:
+                job["message"] = "Waiting for the current render or analysis to finish"
+            enqueued = False
+            try:
+                folder = analysis_dir()
+                save(job, folder)
                 active.add(job_id)
-            Thread(target=execute, args=(job, spec, folder, source, duration),
-                   name=f"analysis-{job_id[:6]}", daemon=True).start()
-            return response
-        except Exception as exc:
-            with guard:
+                args = (job, spec, folder, source, duration)
+                response = dict(job)
+                if immediate:
+                    Thread(target=execute, args=args, name=f"analysis-{job_id[:6]}", daemon=True).start()
+                else:
+                    pending.append(args)
+                    enqueued = True
+                    if not dispatcher_running:
+                        dispatcher_running = True
+                        try:
+                            Thread(target=drain_pending, name="analysis-queue", daemon=True).start()
+                        except Exception:
+                            dispatcher_running = False
+                            raise
+                return response
+            except Exception as exc:
+                if enqueued:
+                    pending.pop()
                 active.discard(job_id)
-            heavy_lock.release()
-            raise HTTPException(507, "Could not start or save the analysis job") from exc
+                if immediate:
+                    heavy_lock.release()
+                raise HTTPException(507, "Could not start or save the analysis job") from exc
+
+    @router.post("", status_code=202)
+    def start_analysis(spec: AnalysisRequest):
+        return submit(spec)
 
     @router.get("")
     def list_analysis(source_id: str | None = Query(default=None, pattern=r"^[0-9a-f]{32}$")):
@@ -619,10 +667,12 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
         return Response(make_vtt(job["captions"], start, end), media_type="text/vtt",
                         headers={"Content-Disposition": 'inline; filename="captions.vtt"'})
 
-    def submit_local_analysis(source_id: str, *, clip_length: float = 30, count: int = 3) -> dict:
-        """Attempt a bounded keyless job from trusted app code; never queues beyond one job."""
-        return start_analysis(AnalysisRequest(source_id=source_id, provider="audio",
-                                              clip_length=clip_length, count=count))
+    def submit_local_analysis(source_id: str, *, clip_length: float = 30, count: int = 3,
+                              visual_motion: bool = False, queue_if_busy: bool = False) -> dict:
+        """Trusted, keyless app hook. Only finite imports may opt into waiting."""
+        return submit(AnalysisRequest(source_id=source_id, provider="audio", clip_length=clip_length,
+                                      count=count, visual_motion=visual_motion),
+                      queue_if_busy=queue_if_busy)
 
     router.submit_local_analysis = submit_local_analysis
     return router

@@ -14,17 +14,17 @@ class Element {
   querySelectorAll(selector){return this.children.flatMap(item=>[...(selector==='[data-workflow-action]'&&item.dataset.workflowAction?[item]:[]),...item.querySelectorAll(selector)]);}
   focus(){this.doc.activeElement=this;}
   setAttribute(key,value){(this.attributes??={})[key]=value;}
-  addEventListener(){}
+  addEventListener(kind, fn){(this.listeners??={})[kind]=fn;}
 }
-function load(){
+function load(override={}){
   const doc={activeElement:null,createElement:()=>new Element(doc),addEventListener(){}};
   const elements=new Map(), $=id=>{
     if(!elements.has(id))elements.set(id,new Element(doc));
     return elements.get(id);
   };
   const sandbox=vm.createContext({
-    $, URLSearchParams, state:{source:null}, document:doc,
-    api:()=>new Promise(()=>{}), setInterval(){}
+    $, URL, URLSearchParams, state:{source:null}, document:doc,
+    api:()=>new Promise(()=>{}), announce(){}, setInterval(){}, ...override
   });
   vm.runInContext(readFileSync(new URL('../app/static/workflows.js','file://'+__filename),'utf8'),sandbox);
   return {$, doc, run:code=>vm.runInContext(code,sandbox)};
@@ -77,4 +77,24 @@ test('suggestion polling follows the same trim when candidates reorder',()=>{
   draw({...job,suggestions:job.suggestions.toReversed()});
   assert.equal(doc.activeElement.dataset.workflowAction,'load');
   assert.equal(doc.activeElement.closest('[data-workflow-key]').dataset.workflowKey,key);
+});
+
+test('VOD and live submit the explicit local-automation choice',async()=>{
+  const calls=[];
+  const {$}=load({api(path, options){
+    if(path==='/api/ingest'&&options?.method==='POST'){
+      calls.push(JSON.parse(options.body));
+      return Promise.resolve({});
+    }
+    return new Promise(()=>{});
+  }});
+  $('ingest-url').value='https://youtu.be/ABCDEFGHIJK';
+  for(const kind of ['vod','live'])for(const checked of [false,true]){
+    $('ingest-kind').value=kind;
+    $('auto-analyze').checked=checked;
+    await $('ingest-form').listeners.submit({preventDefault(){}});
+  }
+  assert.deepEqual(calls.map(({kind,auto_analyze})=>[kind,auto_analyze]),[
+    ['vod',false],['vod',true],['live',false],['live',true]
+  ]);
 });

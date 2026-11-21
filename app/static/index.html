@@ -43,8 +43,11 @@
 <label>Capture type<select id="ingest-kind"><option value="vod">YouTube VOD</option><option value="live">Live capture</option></select></label>
 <label>Video address<input id="ingest-url" class="number" type="url" required placeholder="https://www.youtube.com/watch?v=…"></label>
 <button type="submit" id="ingest-submit" class="lite">Download VOD</button>
-<label id="auto-analyze-row" class="check-row" hidden><input id="auto-analyze" type="checkbox"> Suggest highlights on completed chunks (local audio only; skips if busy)</label>
 </form>
+<div id="auto-analyze-row" class="source-auto">
+<label><input id="auto-analyze" type="checkbox" aria-describedby="source-auto-hint"> Automatically find highlights</label>
+<p id="source-auto-hint" class="hint">Saves draft previews for review on this PC. MP4 and VOD use audio and motion and can wait in the queue; live chunks use audio and skip analysis when busy. Nothing is exported or published automatically.</p>
+</div>
 <p class="hint ingest-hint" id="ingest-hint">Download a video you own or have permission to use. The original stays on this machine.</p>
 <div id="ingest-jobs" class="stack"></div>
 </section>

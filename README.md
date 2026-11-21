@@ -14,11 +14,13 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 
 | Step | What to do |
 | --- | --- |
-| Choose a source | Upload an MP4, download a finished public YouTube video, or start a public live capture. Live capture writes short playable segments; open a completed segment as a source. If the live event has ended and its replay is available, use YouTube VOD. Stop saves already-closed segments and attempts to finish the current one. Optional audio-only suggestions start when a segment closes, if the analysis worker is free. |
+| Choose a source | Upload an MP4, download a finished public YouTube video, or start a public live capture. Live capture writes short playable segments; open a completed segment as a source. If the live event has ended and its replay is available, use YouTube VOD. Stop saves already-closed segments and attempts to finish the current one. Turn on **Automatically find highlights** before import to prepare local drafts for review. MP4 and VOD jobs use audio and motion and can briefly queue. Live uses audio as chunks finish and skips a chunk if the worker is busy. Final export is always manual. |
 | Find moments | Pick **Local audio** to find audio peaks, or **Local Whisper** or **AssemblyAI** to add transcript cues. Optionally include local frame-motion cues. The suggested timestamps include reasons and are heuristic, not guaranteed good clips. Silent footage gets a clearly labeled review window. Suggested drafts render locally by default. |
 | Review | Apply a suggestion or pick a range yourself. Remove intervals inside the clip. Choose fit, fill, split or picture-in-picture; draw your facecam on the source, adjust gameplay/facecam focus, panel share and order, or overlay position and size, and capture layout changes at source timestamps. |
 | Caption | Pick English or Hinglish. Hinglish is best-effort Roman Hindi mixed with English, not a translation or a guarantee of accuracy. Review or edit cues and burn them into your export, or download a subtitle track. |
 | Export | Keep **1080p High** (same setting as the original editor), or choose **720p Compact** for a smaller file. File size depends on the source and duration. Draft quality is unchanged. Use the Local renders filter to switch between drafts and exports; new renders show their exact dimensions, duration, and file size. Saved edits restore their controls from the gallery. |
+
+Queued imports are processed while the app is running. If Docker stops before a job finishes, open its saved source and run analysis again. The queue does not monitor YouTube channels or publish anything.
 
 ## Privacy and providers
 

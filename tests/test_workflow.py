@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 from time import monotonic, sleep
 import unittest
@@ -98,6 +99,46 @@ class Workflow(unittest.TestCase):
         self.assertEqual((info["width"], info["height"]), (1280, 720))
         r = self.client.post("/api/render", json={**body, "facecam": None})
         self.assertEqual(r.status_code, 422)
+
+    def test_local_import_opt_in_waits_for_current_render(self):
+        self.assertEqual(self.client.get("/api/analysis", params={"source_id": self.source}).json(), [])
+        with RENDER_LOCK:
+            response = self.client.post("/api/sources", data={"auto_analyze": "true"},
+                                        files={"file": ("auto.mp4", self.fixture.read_bytes())})
+            self.assertEqual(response.status_code, 200, response.text)
+            source = response.json()
+            self.assertEqual(self.client.get("/api/analysis/" + source["analysis_id"]).json()["status"], "queued")
+        result = self.wait_for_analysis(source["analysis_id"])
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["provider"], "audio")
+        self.assertTrue(result["visual_motion"])
+        self.assertEqual(result["source_id"], source["id"])
+        self.assertTrue(result["suggestions"][0]["draft"]["id"])
+        self.assertEqual(list((self.root / "exports").glob("*.mp4")), [])
+
+    def test_vod_import_submits_local_review_without_exporting(self):
+        def download(root, job, folder):
+            return [sys.executable, "-c", "import shutil,sys;shutil.copyfile(sys.argv[1],sys.argv[2])",
+                    str(self.fixture), str(folder / "video.mp4")]
+        with patch.object(ingest, "downloader", side_effect=download):
+            response = self.client.post("/api/ingest", json={
+                "kind": "vod", "url": "https://youtu.be/ABCDEFGHIJK", "auto_analyze": True})
+            self.assertEqual(response.status_code, 202, response.text)
+            job_url = "/api/ingest/" + response.json()["id"]
+            until = monotonic() + 20
+            while monotonic() < until:
+                current = self.client.get(job_url).json()
+                if current["status"] in ingest.TERMINAL:
+                    break
+                sleep(.05)
+            self.assertEqual(current["status"], "completed", current)
+            output = current["outputs"][0]
+            result = self.wait_for_analysis(output["analysis_id"])
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["source_id"], output["source_id"])
+            self.assertTrue(result["visual_motion"])
+            self.assertTrue(result["suggestions"][0]["draft"]["id"])
+            self.assertEqual(list((self.root / "exports").glob("*.mp4")), [])
 
     def test_live_closed_chunks_analysis_is_optional_and_never_backlogs(self):
         kind = "live"

@@ -91,3 +91,4 @@ button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,su
 .work-card[data-state=stopped] .row-status{background:#343746;color:#e3e5f1}
 .workflow-empty,.artifact-empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:8px;padding:13px;margin:0}
 .job-progress{display:block;width:min(100%,230px);height:6px;margin:9px 0 2px;accent-color:var(--violet)}
+.source-auto{margin:2px 16px 10px;padding:9px 10px;background:#171c26;border:1px solid #344056;border-radius:8px}.source-auto label{display:flex;align-items:center;gap:8px;font-size:.8rem;font-weight:650;cursor:pointer}.source-auto input{margin:0;accent-color:var(--violet)}.source-auto .hint{margin:4px 0 0;color:var(--muted)}

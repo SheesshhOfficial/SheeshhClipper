@@ -132,6 +132,60 @@ class AnalysisTest(unittest.TestCase):
             self.assertFalse(data["visual_motion"])
             cloud.assert_not_called()
 
+    def test_opted_finite_analysis_waits_fifo_and_is_bounded(self):
+        sources = [self.source_id]
+        for i in range(1, analysis.MAX_PENDING_LOCAL):
+            source_id = f"{i:032x}"
+            source_file = self.file.with_name(source_id + ".mp4")
+            source_file.write_bytes(self.file.read_bytes())
+            media.write_record(source_file.with_suffix(".json"), media.probe(source_file))
+            sources.append(source_id)
+
+        executed = []
+
+        def observed_audio(source, duration):
+            self.assertTrue(self.lock.locked())
+            executed.append(source.stem)
+            return []
+
+        with patch.object(analysis, "audio_activity", side_effect=observed_audio), \
+                patch.object(analysis, "motion_activity", return_value=[]) as motion, \
+                patch.object(analysis, "assembly_captions") as cloud:
+            with self.lock:
+                jobs = [self.router.submit_local_analysis(source_id, queue_if_busy=True,
+                                                         visual_motion=(idx == 0))
+                        for idx, source_id in enumerate(sources)]
+                self.assertEqual([], executed)
+                for job in jobs:
+                    got = self.client.get("/api/analysis/" + job["id"]).json()
+                    self.assertEqual("queued", got["status"])
+                    self.assertIn("Waiting", got["message"])
+                    self.assertEqual("audio", got["provider"])
+                with self.assertRaises(HTTPException) as full:
+                    self.router.submit_local_analysis(self.source_id, queue_if_busy=True)
+                self.assertEqual(409, full.exception.status_code)
+                self.assertIn("full", full.exception.detail)
+                with self.assertRaises(HTTPException) as busy:
+                    self.router.submit_local_analysis(self.source_id)
+                self.assertEqual(409, busy.exception.status_code)
+                self.assertEqual(409, self.client.post("/api/analysis", json={
+                    "source_id": self.source_id, "provider": "audio"}).status_code)
+
+                # A fresh router has no in-memory queue and never silently
+                # restarts an automation from the persisted job record.
+                restart = FastAPI()
+                restart.include_router(analysis.make_router(Lock()))
+                with TestClient(restart) as after_restart:
+                    stale = after_restart.get("/api/analysis/" + jobs[0]["id"]).json()
+                    self.assertEqual("interrupted", stale["status"])
+                    self.assertEqual([], executed)
+            for job in jobs:
+                result = self.ready(job["id"])
+                self.assertEqual("completed", result["status"], result)
+            self.assertEqual(sources, executed)
+            motion.assert_called_once()
+            cloud.assert_not_called()
+
     def test_visual_motion_detects_moving_region_but_not_flash_or_cut(self):
         sample = self.file.with_name("motion_fixture.mp4")
         inputs = [

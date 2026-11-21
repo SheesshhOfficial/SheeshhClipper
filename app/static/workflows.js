@@ -48,7 +48,6 @@ function ingestMode(){
   const live=$('ingest-kind').value==='live';
   $('ingest-submit').textContent=live?'Start live capture':'Download VOD';
   $('ingest-url').placeholder=live?'https://www.youtube.com/live/…':'https://www.youtube.com/watch?v=…';
-  $('auto-analyze-row').hidden=!live;
   $('ingest-hint').textContent=live?'Start and stop explicitly. Finished chunks are saved separately, and can be edited while the stream continues.':'Download a video you own or have permission to use. The original stays on this machine.';
 }
 $('ingest-kind').addEventListener('change',ingestMode);
@@ -74,7 +73,7 @@ function paintIngest(jobs) {
     if(ready.length)left.append(node('p',isLive?`${ready.length} saved chunk${ready.length===1?'':'s'} · available in Sources`:'Available in Sources. Your original is retained.'));
     else if(isLive&&j.status==='running')left.append(node('p','Waiting for the first chunk to finish. Keep the local app running.'));
     const newest=ready.at(-1);
-    if(newest?.analysis_id)left.append(node('p','Highlight review is queued for the latest chunk.'));
+    if(newest?.analysis_id)left.append(node('p',j.kind==='live'?'Local highlight analysis submitted for the latest chunk. Open it to review.':'Local highlight analysis submitted. Open the source to review.'));
     else if(newest?.analysis_note)left.append(node('p',newest.analysis_note));
     if(activeIngest.has(j.status)&&j.status!=='stopping'){
       const stop=button(isLive?'Stop capture':'Cancel download',async()=>{
@@ -115,7 +114,7 @@ $('ingest-form').addEventListener('submit',async e=>{
   try{parsed=new URL(url);}catch(_){announce('Enter a valid HTTPS YouTube video or livestream link.',true);return;}
   if(parsed.protocol!=='https:'||!['youtube.com','www.youtube.com','m.youtube.com','youtu.be'].includes(parsed.hostname)){announce('Enter a public HTTPS YouTube video or livestream link.',true);return;}
   ingestSending=true;$('ingest-submit').disabled=true;
-  const payload={url,kind};if(kind==='live')payload.auto_analyze=$('auto-analyze').checked;
+  const payload={url,kind,auto_analyze:$('auto-analyze').checked};
   try{await post('/api/ingest',payload);announce(kind==='live'?'Live capture queued.':'VOD download queued.');await refreshIngest(true);}
   catch(e){announce(e.message,true);}finally{ingestSending=false;$('ingest-submit').disabled=false;}
 });
