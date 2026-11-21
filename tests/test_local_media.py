@@ -62,6 +62,7 @@ class LocalMediaSmoke(unittest.TestCase):
             self.assertEqual((root / "originals" / (source["id"] + ".mp4")).read_bytes(), sample.read_bytes())
             self.assertEqual(len(list((root / "projects").glob("*.json"))), 4)
             saved = client.get("/api/artifacts").json()
+            self.assertTrue(all(item["source_id"] == source["id"] for item in saved))
             self.assertTrue(all(item["bytes"] > 0 and item["duration"] > 0 for item in saved))
             legacy = saved[0]
             recipe = root / "projects" / (legacy["id"] + ".json")

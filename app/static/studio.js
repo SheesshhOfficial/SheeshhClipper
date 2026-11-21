@@ -160,6 +160,7 @@ async function sources(selectId, preserve=false) {
     else loadSource(desired);
   }
   updateControls();
+  visibleGallery();
 }
 function safeArtifact(p) {
   try {const u=new URL(p,location.href); return u.origin===location.origin?u.href:null;} catch(_){return null;}
@@ -172,7 +173,8 @@ function readableSize(bytes) {
 function visibleGallery() {
   const filter=$('artifact-filter')?.value || 'all';
   const selected=artifactItems.filter(item=>filter==='all'||item.kind===filter);
-  const key=JSON.stringify([filter,selected]);
+  const sourceNames=new Map(state.sources.map(item=>[item.id,item.name]));
+  const key=JSON.stringify([filter,selected,[...sourceNames]]);
   if(key===lastGalleryView)return;
   lastGalleryView=key;
   const host=$('artifacts');host.replaceChildren();
@@ -183,19 +185,34 @@ function visibleGallery() {
     p.textContent=filter==='draft'?'No drafts yet. Analyze a source or save a draft from the editor.':filter==='export'?'No exports yet. Export a finished clip from the editor.':'Your drafts and exports will appear here.';
     host.append(p);return;
   }
+  const groups=new Map();
   for(const item of selected) {
-    const url=safeArtifact(item.url);if(!url)continue;
-    const card=document.createElement('article');card.className='artifact';
-    const tag=document.createElement('span');tag.className='tag';tag.textContent=item.kind==='draft'?'Draft':'Export';
-    const h=document.createElement('h3');h.textContent=item.name;
-    const v=document.createElement('video');v.src=url;v.controls=true;v.preload='none';v.playsInline=true;v.setAttribute('aria-label','Preview '+item.name);card.append(v,tag,h);
-    const parts=[item.width&&item.height?item.width+' × '+item.height:'',Number.isFinite(item.duration)?item.duration.toFixed(2)+' s':'',readableSize(item.bytes)].filter(Boolean);
-    if(parts.length){const meta=document.createElement('p');meta.className='artifact-meta';meta.textContent=parts.join(' · ');card.append(meta);}
-    const a=document.createElement('a');a.href=url;a.download=item.name;a.textContent='Download MP4';
-    const restore=document.createElement('button');restore.type='button';restore.className='text-button';
-    restore.textContent='Restore edit';restore.addEventListener('click',()=>restoreEdit(item.id,restore));
-    const links=document.createElement('div');links.className='artifact-links';links.append(a,restore);
-    card.append(links);host.append(card);
+    const groupKey=item.source_id||'';
+    if(!groups.has(groupKey)) groups.set(groupKey,[]);
+    groups.get(groupKey).push(item);
+  }
+  for(const [sourceId, items] of groups) {
+    const group=document.createElement('section');group.className='artifact-group';
+    const title=document.createElement('h3');
+    title.textContent=sourceNames.get(sourceId)||(sourceId?'Unavailable source · '+sourceId.slice(0,8):'Unlinked clips');
+    const summary=document.createElement('p');summary.className='panel-note';
+    summary.textContent=items.length+' clip'+(items.length===1?'':'s');
+    const tiles=document.createElement('div');tiles.className='artifact-grid';
+    group.append(title,summary,tiles);host.append(group);
+    for(const item of items) {
+      const url=safeArtifact(item.url);if(!url)continue;
+      const card=document.createElement('article');card.className='artifact';
+      const tag=document.createElement('span');tag.className='tag';tag.textContent=item.kind==='draft'?'Draft':'Export';
+      const h=document.createElement('h4');h.textContent=item.name;
+      const v=document.createElement('video');v.src=url;v.controls=true;v.preload='none';v.playsInline=true;v.setAttribute('aria-label','Preview '+item.name);card.append(v,tag,h);
+      const parts=[item.width&&item.height?item.width+' × '+item.height:'',Number.isFinite(item.duration)?item.duration.toFixed(2)+' s':'',readableSize(item.bytes)].filter(Boolean);
+      if(parts.length){const meta=document.createElement('p');meta.className='artifact-meta';meta.textContent=parts.join(' · ');card.append(meta);}
+      const a=document.createElement('a');a.href=url;a.download=item.name;a.textContent='Download MP4';
+      const restore=document.createElement('button');restore.type='button';restore.className='text-button';
+      restore.textContent='Restore edit';restore.addEventListener('click',()=>restoreEdit(item.id,restore));
+      const links=document.createElement('div');links.className='artifact-links';links.append(a,restore);
+      card.append(links);tiles.append(card);
+    }
   }
 }
 async function artifacts() {
@@ -207,6 +224,7 @@ async function artifacts() {
 async function restoreEdit(id,button) {
   if(state.busy)return;
   state.busy=true;button.disabled=true;updateControls();
+  const revision=workspace.revision();
   try {
     const item=await api('/api/artifacts/'+encodeURIComponent(id)), edit=item.edit;
     if(!edit)throw new Error('This artifact has no saved edit.');
@@ -225,7 +243,7 @@ async function restoreEdit(id,button) {
     document.dispatchEvent(new CustomEvent('sheesh-edit-restored',{detail:edit}));
     setFace(edit.facecam||null);paint();
     announce('Edit restored. The saved artifact was not changed.');
-    $('preview-title').scrollIntoView({block:'nearest'});
+    if(workspace.revision()===revision)workspace.open('editor-workspace','preview-title');
   }catch(e){announce(e.message,true);}finally{state.busy=false;button.disabled=false;updateControls();}
 }
 function drawFit(sx,sy,sw,sh,dx,dy,dw,dh) {
@@ -376,7 +394,7 @@ async function render(kind){
   try{
     const saved=await api('/api/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const size=readableSize(saved.bytes);
-    announce((kind==='draft'?'Draft saved. ':'Export saved. ')+saved.name+(size?' ('+size+')':'')+'. Find it in Local renders.');
+    announce((kind==='draft'?'Draft saved. ':'Export saved. ')+saved.name+(size?' ('+size+')':'')+'. Find it in Saved clips.');
     try{await artifacts();}catch(e){announce('Saved, but the gallery could not refresh. '+e.message,true);}
   }catch(e){announce(e.message,true);}finally{state.busy=false;updateControls();}
 }

@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="dark">
 <title>SheeshhClipper | Local Studio</title>
 <link rel="stylesheet" href="/static/studio.css">
+<script defer src="/static/workspace.js"></script>
 <script defer src="/static/studio.js"></script>
 <script defer src="/static/workflows.js"></script>
 </head>
@@ -13,63 +14,84 @@
 <a class="skip-link" href="#workspace">Skip to workspace</a>
 <header class="site-header">
   <div class="header-inner">
-    <a class="identity" href="#workspace" aria-label="SheeshhClipper workspace">
+    <a class="identity" href="#import-workspace" data-workspace-link aria-label="SheeshhClipper workspace">
       <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7 21 19M9 17 21 5"/><circle cx="6" cy="5" r="3"/><circle cx="6" cy="19" r="3"/></svg></span>
       <span class="identity-type"><strong>SheeshhClipper</strong><small>LOCAL STUDIO</small></span>
     </a>
-    <span class="status"><i aria-hidden="true"></i> Local workspace</span>
+    <span class="status"><i aria-hidden="true"></i> Runs locally</span>
   </div>
 </header>
 <main id="workspace" tabindex="-1">
-<section class="intro" aria-labelledby="workspace-title">
-  <div class="eyebrow">VIDEO EDITING WORKSPACE</div>
-  <h1 id="workspace-title">Clip Studio</h1>
-  <p>Find the good parts, frame the action, and export your cut. Originals stay untouched.</p>
-</section>
-<nav class="workflow" aria-label="Studio workflow">
+<div class="studio-shell">
+<nav class="workflow" aria-label="Studio views">
+  <p class="nav-label">WORKSPACE</p>
   <ol>
-    <li><a href="#import-workspace"><span class="step-number" aria-hidden="true">01</span><span><strong>Import</strong><small>Choose footage</small></span></a></li>
-    <li><a href="#analysis-workspace"><span class="step-number" aria-hidden="true">02</span><span><strong>Analyze</strong><small>Review suggestions</small></span></a></li>
-    <li><a href="#editor-workspace"><span class="step-number" aria-hidden="true">03</span><span><strong>Edit</strong><small>Trim and frame</small></span></a></li>
-    <li><a href="#export-workspace"><span class="step-number" aria-hidden="true">04</span><span><strong>Export</strong><small>Save and review</small></span></a></li>
+    <li><a href="#import-workspace" data-workspace-link><span class="step-number" aria-hidden="true">01</span><span><strong>Sources</strong><small>Import &amp; capture</small></span></a></li>
+    <li><a href="#analysis-workspace" data-workspace-link><span class="step-number" aria-hidden="true">02</span><span><strong>Highlights</strong><small>Suggestions &amp; captions</small></span></a></li>
+    <li><a href="#editor-workspace" data-workspace-link><span class="step-number" aria-hidden="true">03</span><span><strong>Editor</strong><small>Trim &amp; frame</small></span></a></li>
+    <li><a href="#export-workspace" data-workspace-link><span class="step-number" aria-hidden="true">04</span><span><strong>Saved clips</strong><small>Drafts &amp; exports</small></span></a></li>
   </ol>
+  <p class="nav-footer">Manual export only.<br>No automatic posting.</p>
 </nav>
-<section id="import-workspace" class="surface ingest" aria-labelledby="ingest-title">
-<div class="panel-top">
-  <div><div class="eyebrow">01 / IMPORT</div><h2 id="ingest-title">Source library</h2><p class="panel-note">Start with a local MP4 or a public YouTube link you have permission to use.</p></div>
-  <div class="source-upload"><button id="import-button" type="button" class="primary">Import video</button><input id="import-file" type="file" accept="video/mp4,.mp4" hidden></div>
-</div>
-<form id="ingest-form" class="ingest-form">
-<label>Capture type<select id="ingest-kind"><option value="vod">YouTube VOD</option><option value="live">Live capture</option></select></label>
-<label>Video address<input id="ingest-url" class="number" type="url" required placeholder="https://www.youtube.com/watch?v=…"></label>
-<button type="submit" id="ingest-submit" class="lite">Download VOD</button>
-</form>
-<div id="auto-analyze-row" class="source-auto">
-<label><input id="auto-analyze" type="checkbox" aria-describedby="source-auto-hint"> Automatically find highlights</label>
-<p id="source-auto-hint" class="hint">Saves draft previews for review on this PC. MP4 and VOD use audio and motion and can wait in the queue; live chunks use audio and skip analysis when busy. Nothing is exported or published automatically.</p>
-</div>
-<p class="hint ingest-hint" id="ingest-hint">Download a video you own or have permission to use. The original stays on this machine.</p>
-<div id="ingest-jobs" class="stack"></div>
+<div class="workspace-content">
+  <div class="source-bar">
+    <label for="source">Active source</label>
+    <select id="source"><option value="">No sources yet</option></select>
+  </div>
+<section id="import-workspace" class="workspace-pane" aria-labelledby="ingest-title">
+  <div class="view-heading"><div class="eyebrow">01 / SOURCES</div><h1 id="ingest-title" tabindex="-1">Bring in footage</h1><p>Upload an MP4, import a YouTube video, or capture a live stream.</p></div>
+  <div id="auto-analyze-row" class="source-auto">
+    <label><input id="auto-analyze" type="checkbox" aria-describedby="source-auto-hint"> Automatically find highlights</label>
+    <p id="source-auto-hint" class="hint">Set before importing. Prepares drafts for review without exporting. MP4 and VOD use audio and motion; live chunks use audio and skip analysis if the worker is busy.</p>
+  </div>
+  <div class="import-grid">
+    <section class="surface import-card" aria-labelledby="file-title">
+      <span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m-4 4 4-4 4 4M5 15v5h14v-5"/></svg></span>
+      <h2 id="file-title">Local file</h2><p class="panel-note">Choose an MP4 from this computer. Your original stays untouched.</p>
+      <div class="source-upload"><button id="import-button" type="button" class="primary">Import video</button><input id="import-file" type="file" accept="video/mp4,.mp4" hidden></div>
+    </section>
+    <section class="surface import-card" aria-labelledby="youtube-title">
+      <span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="m10 9 5 3-5 3z"/></svg></span>
+      <h2 id="youtube-title">YouTube</h2><p class="panel-note">Paste a public link you have permission to use.</p>
+      <form id="ingest-form" class="ingest-form">
+        <label>Capture type<select id="ingest-kind"><option value="vod">YouTube VOD</option><option value="live">Live capture</option></select></label>
+        <label>Video address<input id="ingest-url" class="number" type="url" required placeholder="https://www.youtube.com/watch?v=…"></label>
+        <button type="submit" id="ingest-submit" class="primary">Download VOD</button>
+      </form>
+      <p class="hint" id="ingest-hint">Download a video you own or have permission to use. The original stays on this machine.</p>
+    </section>
+  </div>
+  <section class="surface ingest" aria-labelledby="activity-title">
+    <div class="panel-top"><div><h2 id="activity-title">Import activity</h2><p class="panel-note">Track YouTube downloads and open finished live chunks.</p></div><a class="lite" href="#editor-workspace" data-workspace-link>Go to editor <span aria-hidden="true">→</span></a></div>
+    <div id="ingest-jobs" class="stack"></div>
+  </section>
 </section>
-<section id="analysis-workspace" class="surface analysis" aria-labelledby="analysis-title">
-<div class="panel-top"><div><div class="eyebrow">02 / ANALYZE · OPTIONAL</div><h2 id="analysis-title">Suggestions and captions</h2><p class="panel-note">Review candidate moments and captions before making your final cut.</p></div></div>
+<section id="analysis-workspace" class="workspace-pane" aria-labelledby="analysis-title">
+<div class="view-heading"><div class="eyebrow">02 / HIGHLIGHTS</div><h1 id="analysis-title" tabindex="-1">Find your best moments</h1><p>Review suggested trims and captions for the active source.</p></div>
+<div class="surface analysis">
+<div class="panel-top"><div><h2>Analysis settings</h2><p class="panel-note">Choose which signals to use, then review the results below.</p></div></div>
 <form id="analysis-form" class="ingest-form">
 <label>Language<select id="analysis-language"><option value="english">English</option><option value="hinglish">Hinglish</option></select></label>
 <label>Analysis method<select id="analysis-provider"><option value="audio">Local audio signals · no captions</option><option value="whisper">Local Whisper · captions</option><option value="assemblyai">AssemblyAI · cloud captions</option></select></label>
-<button id="analyze" type="submit" class="lite" disabled>Analyze selected source</button>
+<button id="analyze" type="submit" class="primary" disabled>Analyze selected source</button>
 <label class="check-row"><input id="visual-motion" type="checkbox" aria-describedby="motion-hint"> Include local motion cues</label>
 <label id="analysis-consent-row" class="check-row" hidden><input type="checkbox" id="analysis-consent"> I agree to send this source’s audio to AssemblyAI for transcription.</label>
 </form>
 <p class="hint ingest-hint" id="motion-hint">Motion cues measure how much the picture changes. They are not event or object recognition.</p>
+</div>
+<div class="surface analysis-results"><div class="panel-top"><div><h2>Suggestions and captions</h2><p class="panel-note">Preview a draft or load its trim into the editor.</p></div></div>
 <p id="analysis-status" class="hint ingest-hint" role="status">Select a source to look for highlights. Review suggestions before exporting.</p>
 <div id="suggestions" class="stack"></div>
 <div id="captions" class="caption-panel" hidden></div>
+</div>
 </section>
-<div class="grid" id="editor-workspace">
+<section id="editor-workspace" class="workspace-pane" aria-labelledby="editor-title">
+<div class="view-heading"><div class="eyebrow">03 / EDITOR</div><h1 id="editor-title" tabindex="-1">Make the cut</h1><p>Trim your clip, set the frame, then save a draft or export.</p></div>
+<div class="grid">
 <section class="surface stage" aria-labelledby="preview-title">
-<div class="panel-top"><div><div class="eyebrow">03 / EDIT · MONITOR</div><h2 id="preview-title">Preview</h2></div><div class="source-controls"><label class="sr" for="source">Source video</label><select id="source"><option value="">No sources yet</option></select></div></div>
+<div class="panel-top"><h2 id="preview-title" tabindex="-1">Preview</h2><a class="lite" href="#export-workspace" data-workspace-link>Saved clips <span aria-hidden="true">→</span></a></div>
 <div class="monitor">
-<div id="empty" class="empty"><span class="empty-icon" aria-hidden="true">▶</span><b>No video loaded</b><p>Import a local MP4 to get started.</p></div>
+<div id="empty" class="empty"><span class="empty-icon" aria-hidden="true">▶</span><b>No video loaded</b><p>Pick an active source above or import new footage.</p></div>
 <div id="viewport" class="viewport" hidden><canvas id="frame" width="720" height="405" aria-label="Layout preview"></canvas></div>
 </div>
 <video id="video" preload="metadata" playsinline hidden></video>
@@ -81,7 +103,7 @@
 </section>
 
 <section class="surface controls" aria-labelledby="edit-title">
-<div class="panel-top"><div><div class="eyebrow">03 / EDIT · INSPECTOR</div><h2 id="edit-title">Clip controls</h2><p class="panel-note">Adjust the cut, crop, and facecam.</p></div></div>
+<div class="panel-top"><div><h2 id="edit-title" tabindex="-1">Clip controls</h2><p class="panel-note">Adjust the cut, crop, and facecam.</p></div></div>
 <form id="edit-form">
 <fieldset><legend>Trim <output id="clip-length">0.00s</output></legend>
 <div class="trim">
@@ -123,8 +145,17 @@
 <div class="actions"><button id="draft" type="button" class="lite" disabled>Save draft</button><label class="profile">Export resolution<select id="export-profile"><option value="high">1080p · High</option><option value="compact">720p · Compact</option></select></label><button id="export" type="button" class="primary" disabled>Export clip <span aria-hidden="true">↗</span></button></div>
 </form></section>
 </div>
+</section>
 
-<section id="export-workspace" class="surface gallery" aria-labelledby="gallery-title"><div class="panel-top"><div><div class="eyebrow">04 / EXPORT</div><h2 id="gallery-title">Local renders</h2><p class="panel-note">Save from Clip controls, then play, download, or restore your edit here.</p></div><div class="gallery-toolbar"><label class="sr" for="artifact-filter">Filter local renders</label><select id="artifact-filter"><option value="all">All renders</option><option value="draft">Drafts</option><option value="export">Exports</option></select><button id="refresh" type="button" class="lite">Refresh</button></div></div><p id="artifact-count" class="artifact-count muted" aria-live="polite"></p><div id="artifacts" class="artifacts"><p class="muted">No drafts or exports yet.</p></div></section>
+<section id="export-workspace" class="workspace-pane" aria-labelledby="gallery-title">
+<div class="view-heading"><div class="eyebrow">04 / SAVED CLIPS</div><h1 id="gallery-title" tabindex="-1">Drafts &amp; exports</h1><p>Browse clips by source. Download an MP4 or restore its edit without changing the saved clip.</p></div>
+<div class="surface gallery">
+<div class="panel-top"><div><h2>Local library</h2><p id="artifact-count" class="artifact-count muted" aria-live="polite"></p></div><div class="gallery-toolbar"><label class="sr" for="artifact-filter">Filter saved clips</label><select id="artifact-filter"><option value="all">All clips</option><option value="draft">Drafts</option><option value="export">Exports</option></select><button id="refresh" type="button" class="lite">Refresh</button></div></div>
+<div id="artifacts" class="artifacts"><p class="muted">No drafts or exports yet.</p></div>
+</div>
+</section>
+</div>
+</div>
 <p id="notice" role="status" aria-live="polite"></p>
 </main>
 </body>

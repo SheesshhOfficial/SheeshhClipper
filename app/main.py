@@ -145,7 +145,11 @@ def source_public(source: dict) -> dict:
 
 def artifact_public(artifact: dict) -> dict:
     fields = ("id", "name", "url", "kind", "width", "height", "duration", "bytes")
-    return {key: artifact[key] for key in fields if key in artifact}
+    result = {key: artifact[key] for key in fields if key in artifact}
+    edit = artifact.get("edit")
+    if isinstance(edit, dict) and isinstance(source_id := edit.get("source_id"), str) and ID.fullmatch(source_id):
+        result["source_id"] = source_id
+    return result
 
 @app.get("/api/health")
 def health():

@@ -12,13 +12,15 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 
 ## How to make a clip
 
+The dark workspace separates **Sources**, **Highlights**, **Editor**, and **Saved clips**. The source picker stays available across all four views. Changing views does not reset your trim or framing. Saved clips are grouped by their original source, including older drafts and exports that have a saved edit. Existing media files stay where they are. The layout takes inspiration from [SupoClip’s app guide](https://github.com/FujiwaraChoki/supoclip/blob/main/docs/app-guide.md), not its code.
+
 | Step | What to do |
 | --- | --- |
 | Choose a source | Upload an MP4, download a finished public YouTube video, or start a public live capture. Live capture writes short playable segments; open a completed segment as a source. If the live event has ended and its replay is available, use YouTube VOD. Stop saves already-closed segments and attempts to finish the current one. Turn on **Automatically find highlights** before import to prepare local drafts for review. MP4 and VOD jobs use audio and motion and can briefly queue. Live uses audio as chunks finish and skips a chunk if the worker is busy. Final export is always manual. |
 | Find moments | Pick **Local audio** to find audio peaks, or **Local Whisper** or **AssemblyAI** to add transcript cues. Optionally include local frame-motion cues. The suggested timestamps include reasons and are heuristic, not guaranteed good clips. Silent footage gets a clearly labeled review window. Suggested drafts render locally by default. |
 | Review | Apply a suggestion or pick a range yourself. Remove intervals inside the clip. Choose fit, fill, split or picture-in-picture; draw your facecam on the source, adjust gameplay/facecam focus, panel share and order, or overlay position and size, and capture layout changes at source timestamps. |
 | Caption | Pick English or Hinglish. Hinglish is best-effort Roman Hindi mixed with English, not a translation or a guarantee of accuracy. Review or edit cues and burn them into your export, or download a subtitle track. |
-| Export | Keep **1080p High** (same setting as the original editor), or choose **720p Compact** for a smaller file. File size depends on the source and duration. Draft quality is unchanged. Use the Local renders filter to switch between drafts and exports; new renders show their exact dimensions, duration, and file size. Saved edits restore their controls from the gallery. |
+| Export | Keep **1080p High** (same setting as the original editor), or choose **720p Compact** for a smaller file. File size depends on the source and duration. Draft quality is unchanged. Use the Saved clips filter to switch between drafts and exports; new renders show their exact dimensions, duration, and file size. Saved edits restore their controls from the gallery. |
 
 Queued imports are processed while the app is running. If Docker stops before a job finishes, open its saved source and run analysis again. The queue does not monitor YouTube channels or publish anything.
 
@@ -39,5 +41,5 @@ Queued imports are processed while the app is running. If Docker stops before a 
 - `docker compose ps` shows the service status. `docker compose logs --tail 60 clipper` shows app logs. If YouTube ingest fails, check the import card and the matching `ingest.log` under `data/downloads/` (VOD) or `data/live-chunks/` (live). The yt-dlp error usually precedes any FFmpeg error about empty input.
 - Open [local diagnostics](http://localhost:7310/api/diagnostics) for FFmpeg, yt-dlp, EJS, Deno, Whisper package and free-space information. Check the port if overridden. Don't share logs containing private source links or local paths.
 - Local development: use Python 3.12, FFmpeg/FFprobe and Deno on PATH. Install `requirements.txt`, use a separate `SHEESH_DATA_DIR`, and run `python -m uvicorn app.main:app --host 127.0.0.1 --port 7310`.
-- Install `httpx` for tests, then run `python -m unittest discover -s tests -v` and `node --check app/static/studio.js && node --check app/static/workflows.js`. Run `node --test tests/test_workflows_ui.cjs` for the focused workflow card checks. The optional browser smoke script needs Playwright and Chromium.
+- Install `httpx` for tests, then run `python -m unittest discover -s tests -v` and `node --check app/static/workspace.js && node --check app/static/studio.js && node --check app/static/workflows.js`. Run `node --test tests/*.cjs` for the focused workflow card checks. The optional browser smoke script needs Playwright and Chromium.
 - See [verification notes](docs/VERIFICATION.md) and [reference decisions](docs/REFERENCES.md).

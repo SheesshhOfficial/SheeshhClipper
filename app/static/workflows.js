@@ -37,10 +37,10 @@ async function post(path,body) {
 async function openIngestSource(sourceId){
   if(state.busy){announce('Wait for the current editor action to finish before switching sources.');return;}
   try{
+    const revision = workspace.revision();
     await sources(sourceId);
     if(String(state.source?.id)!==String(sourceId))throw new Error('The saved source is not available yet.');
-    $('preview-title').scrollIntoView({block:'nearest'});
-    $('preview-title').setAttribute('tabindex','-1');$('preview-title').focus({preventScroll:true});
+    if (workspace.revision()===revision) workspace.open('editor-workspace','preview-title');
     announce('Imported source opened. Set the trim and frame before exporting.');
   }catch(e){announce('Could not open the source: '+e.message,true);}
 }
@@ -54,7 +54,7 @@ $('ingest-kind').addEventListener('change',ingestMode);
 function paintIngest(jobs) {
   const hash=JSON.stringify(jobs);if(hash===lastIngestHash)return;lastIngestHash=hash;
   const host=$('ingest-jobs'), focus=saveWorkflowFocus(host);host.replaceChildren();
-  if(!jobs.length){host.append(node('p','Imported videos and saved live chunks will appear here. Use Import video above for a local MP4.','hint workflow-empty'));return;}
+  if(!jobs.length){host.append(node('p','YouTube import jobs will appear here. Local MP4s are available in the active source menu.','hint workflow-empty'));return;}
   const visible=[...jobs.filter(j=>activeIngest.has(j.status)),...jobs.filter(j=>!activeIngest.has(j.status))].slice(0,10);
   for(const j of visible){
     const ready=(j.outputs||[]).filter(o=>o.source_id);
@@ -149,10 +149,7 @@ function selectSuggestion(s) {
   $('start').value=String(start);$('end').value=String(end);$('cuts').replaceChildren();
   if(video.readyState>=1)video.currentTime=start;
   updateControls();paint();refreshCaptionView();
-  const editTitle=$('edit-title');
-  editTitle.scrollIntoView({block:'nearest'});
-  editTitle.setAttribute('tabindex','-1');editTitle.focus({preventScroll:true});
-  $('edit-title').setAttribute('tabindex','-1');$('edit-title').focus({preventScroll:true});
+  workspace.open('editor-workspace','edit-title');
   announce('Suggested trim loaded. Adjust it before saving or exporting.');
 }
 function paintAnalysis(jobs) {
