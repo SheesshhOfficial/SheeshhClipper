@@ -9,6 +9,7 @@
 <script defer src="/static/workspace.js"></script>
 <script defer src="/static/projects.js"></script>
 <script defer src="/static/studio.js"></script>
+<script defer src="/static/editor-shortcuts.js"></script>
 <script defer src="/static/workflows.js"></script>
 </head>
 <body>
@@ -91,7 +92,7 @@
 <div class="grid">
 <section class="surface stage" aria-labelledby="preview-title">
 <div class="panel-top"><h2 id="preview-title" tabindex="-1">Preview</h2><a class="lite" href="#export-workspace" data-workspace-link>Saved clips <span aria-hidden="true">→</span></a></div>
-<div class="monitor">
+<div class="monitor" tabindex="0" role="group" aria-label="Video preview and keyboard controls">
 <div id="empty" class="empty"><span class="empty-icon" aria-hidden="true">▶</span><b>No video loaded</b><p>Pick an active source above or import new footage.</p></div>
 <div id="viewport" class="viewport" hidden><canvas id="frame" width="720" height="405" aria-label="Layout preview"></canvas></div>
 </div>
@@ -100,6 +101,7 @@
 <button id="play" type="button" class="lite" disabled>Play</button><label class="sr" for="seek">Playhead</label><input type="range" min="0" max="1" step=".01" id="seek" value="0" disabled><span id="play-time">00:00 / 00:00</span>
 <button id="play-edit" type="button" class="lite" disabled>Play trim</button>
 </div>
+<details class="shortcut-help"><summary>Keyboard shortcuts</summary><p>Focus the preview, then press <kbd>Space</kbd> to play or pause, <kbd>[</kbd> to set the start, or <kbd>]</kbd> to set the end at the playhead. Shortcuts do not run while you type or use an input control.</p></details>
 <div class="panel-bottom"><div id="source-meta" class="muted">Add an MP4 for the most reliable browser preview.</div><button id="mark-face" type="button" class="lite" disabled>Draw facecam region</button></div>
 </section>
 
