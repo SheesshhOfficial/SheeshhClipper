@@ -26,6 +26,7 @@ TERMINAL = {"completed", "stopped", "failed"}
 LOCK = threading.RLock()
 ACTIVE = {}
 SEGMENT_SECONDS = 60
+submit_live_analysis = None
 
 
 def canonical_youtube(value: str) -> str:
@@ -52,6 +53,7 @@ class Ingest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: str
     kind: Literal["vod", "live"]
+    auto_analyze: bool = False
 
 
 def cache(root):
@@ -191,6 +193,14 @@ def publish(root, job, path):
     media.write_record(target.with_suffix(".json"), {"id": id, "name": name,
                       "url": f"/api/sources/{id}/media", **info})
     output = {"name": path.name, "source_id": id, "url": f"/api/ingest/{job['id']}/files/{path.name}"}
+    if job["kind"] == "live" and job.get("auto_analyze") and submit_live_analysis:
+        try:
+            output["analysis_id"] = submit_live_analysis(id, clip_length=20, count=2)["id"]
+        except HTTPException as exc:
+            output["analysis_note"] = ("Analysis busy; open this source and analyze it manually."
+                                       if exc.status_code == 409 else "Auto analysis could not start.")
+        except Exception:
+            output["analysis_note"] = "Auto analysis could not start."
     with LOCK:
         active_stop = ACTIVE.get((root, job["id"]))
         if active_stop and active_stop.is_set():
@@ -318,9 +328,11 @@ def start(request: Ingest):
         url = canonical_youtube(request.url)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    if request.kind != "live" and request.auto_analyze:
+        raise HTTPException(422, "Automatic segment analysis is available for live capture only")
     root = media.root()
     id = media.media_id()
-    job = {"id": id, "url": url, "kind": request.kind, "status": "queued",
+    job = {"id": id, "url": url, "kind": request.kind, "auto_analyze": request.auto_analyze, "status": "queued",
            "message": "Queued", "outputs": []}
     stop = threading.Event()
     with LOCK:

@@ -19,6 +19,6 @@ Use a project ID subfolder under each applicable directory. Keep originals and d
 
 **Retention decisions:** No app-imposed storage cap, expiry timer, or automatic deletion of saved data. The actual drive still has finite capacity. If a write can't complete, report the error and preserve already saved files. Deletion is an explicit user action.
 
-**Docker design:** When the app is implemented, bind-mount the checkout's `./data` into the containers so app files stay here instead of in Docker-managed volumes. Docker Engine's images and internal data are separate. The folder layout and ignore rules do not start Docker or implement capture.
+**Docker design:** The Docker launcher bind-mounts this checkout’s `./data` into the app, so runtime files stay here instead of in Docker-managed volumes. Docker Engine's images and internal data are separate.
 
 Keep credentials in an ignored local `.env` at the repo root. Never store real keys in Git, logs, or example files. Do not force-add ignored files. Back up `data/` separately if you want a copy; cloning the repository restores the folder structure, not your local files.

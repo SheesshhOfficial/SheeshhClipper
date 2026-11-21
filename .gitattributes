@@ -1,4 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
+# Keep the Windows launcher compatible when cloning on any platform.
 *.bat text eol=crlf

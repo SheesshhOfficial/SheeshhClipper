@@ -5,6 +5,7 @@ services:
       - "127.0.0.1:${SHEESH_PORT:-7310}:8000"
     environment:
       SHEESH_DATA_DIR: /data
+      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-}
     volumes:
       - ./data:/data
     init: true

@@ -1,40 +1,40 @@
 # SheeshhClipper
 
-A Windows-first, local video clipping workbench. This first build is the local editor foundation, not the finished all-in-one clipper.
+A Windows-first, local studio for gameplay clips. Bring in your own footage, find possible moments, edit the cut and layout, then export when you're happy with it. Nothing is automatically posted or deleted.
 
 ## Start on Windows
 
 1. Start Docker Desktop with the WSL 2 backend.
-2. Double-click `runme.bat` from this directory, or run `docker compose up -d --build --wait` and open http://localhost:7310/.
-3. Import your own H.264 MP4 for the most compatible preview. Preview a source, set start/end, choose a fit, fill, or manual facecam split layout, then save a draft or make an export. Keep `data/` if updating or replacing app files.
+2. Double-click `runme.bat` from the checkout, or run `docker compose up -d --build --wait` and open http://localhost:7310/.
+3. Import a local H.264 MP4, or paste a public YouTube video or live URL that you have permission to capture.
 
-Final export lets you choose the existing 1080p High default or 720p Compact. Draft quality is unchanged. File size depends on the video.
+The first build installs FFmpeg and the other dependencies; that can take several minutes, particularly if Debian package downloads are slow. Changing app files doesn't normally invalidate the cached FFmpeg layer. To see build output in full, run `docker compose --progress plain build`. Stop the app without deleting files with `docker compose down`. If port 7310 is occupied, set `SHEESH_PORT` to a free port; the launcher opens the actual port. The app is single-user and binds to loopback. Do not expose it to a LAN or the internet.
 
-No API key or account is required. Docker needs internet for first-time base image and dependency downloads. App traffic binds to your machine only. To stop without deleting any data, run `docker compose down`. If port 7310 is in use, set `SHEESH_PORT` to a free local port before starting.
+## How to make a clip
 
-## Local storage
+| Step | What to do |
+| --- | --- |
+| Choose a source | Upload an MP4, download a finished public YouTube video, or start a public live capture. Live capture writes short playable segments; open a completed segment as a source. Stop saves already-closed segments and attempts to finish the current one. Optional audio-only suggestions start when a segment closes, if the analysis worker is free. |
+| Find moments | Pick **Local audio** to find audio peaks, or **Local Whisper** or **AssemblyAI** to add transcript cues. Optionally include local frame-motion cues. The suggested timestamps include reasons and are heuristic, not guaranteed good clips. Silent footage gets a clearly labeled review window. Suggested drafts render locally by default. |
+| Review | Apply a suggestion or pick a range yourself. Remove intervals inside the clip. Choose fit, fill, split or picture-in-picture; draw your facecam on the source, adjust gameplay/facecam focus, panel share and order, or overlay position and size, and capture layout changes at source timestamps. |
+| Caption | Pick English or Hinglish. Hinglish is best-effort Roman Hindi mixed with English, not a translation or a guarantee of accuracy. Review or edit cues and burn them into your export, or download a subtitle track. |
+| Export | Keep **1080p High** (same setting as the original editor), or choose **720p Compact** for a smaller file. File size depends on the source and duration. Draft quality is unchanged. Saved edits restore their controls from the gallery. |
 
-`./data` is bind-mounted into the app, so sources, local state, drafts and exports remain in the checkout after Docker stops. Originals and renders are stored under their own categories with unique IDs. The gallery uses their saved names and edit settings. There is no app-imposed quota, expiry, auto-delete, or uploading to GitHub. Back up ignored data separately. A full drive can still prevent writes. See [data/README.md](data/README.md).
+## Privacy and providers
 
-## Scope
+- Local MP4 editing and audio scoring need no credential or cloud provider. Whisper runs locally on CPU and fetches the model on first use. The model cache is local.
+- Optional AssemblyAI: copy `.env.example` to `.env`, set `ASSEMBLYAI_API_KEY`, then restart with `docker compose up -d`. Select AssemblyAI and confirm on each run before sending the selected source's audio to that provider. It may incur charges on your account. Your video, tokens, and provider URLs are not included in the published code.
+- YouTube ingest sends the public link to YouTube and uses yt-dlp, bundled EJS scripts and Deno. No browser cookies, login, or bypasses. YouTube may restrict a specific video, client, or IP; private, protected, upcoming, or unavailable sources are not supported.
+- Live operates on closed chunks, not as a continuous Twitch/YouTube chat listener. Clips spanning multiple chunks, chat spike scoring, GPU-specific encoding and learning-based gameplay vision are not included. CPU is the default; a live transcode can overlap with one render or analysis.
 
-Working toward a single editor for local files, yt-dlp YouTube VOD and live capture. This milestone focuses on importing local files, trimming, framing gameplay/facecam, and retaining drafts and exports. Automatic highlight selection, inner-cut editing, captions (local Whisper and opt-in AssemblyAI), multi-layout keyframes, VOD/live ingest and hosted ranking are planned, not implied by this build. No social account integration or publishing.
+## Keep your data
 
-## Development without Docker
+`./data` is bind-mounted, with no app-imposed storage quota, expiry, auto-delete, or GitHub upload. Finished downloads, proxies, live chunks, captions, drafts, exports and saved edit recipes remain under it. Originals are never overwritten by edits. A full disk can still interrupt writes. Docker's own image and build cache may be on another drive; deleting `data/` is not a remedy. See [the folder guide](data/README.md).
 
-Requires Python 3.12 and FFmpeg/FFprobe on PATH. From this directory:
+## Verify or troubleshoot
 
-```sh
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --host 127.0.0.1 --port 7310
-```
-
-Use a temporary `SHEESH_DATA_DIR` for test jobs rather than the real library. Do not expose this local unauthenticated app to other devices.
-
-## Smoke test
-
-Install the optional test dependency `httpx`, then run `python -m unittest discover -s tests -v`. The integration test uses synthetic video and a temporary data directory. An optional browser smoke script uses Playwright and its installed Chromium (or set `SHEESH_CHROMIUM` to an executable).
-
-## Public YouTube ingest
-
-Use **Bring in a video** for public YouTube videos or live streams you own or have permission to use. No account, cookies or API key are used. VOD originals remain under `data/downloads`; when needed, an H.264/AAC editing copy is created beside the original. Live currently requires a public, multiplexed HLS stream at 720p or lower. Press **Stop** to finish the capture. Completed MP4 chunks are saved under `data/live-chunks` and appear in Sources. Hard shutdown may leave the active chunk incomplete; finalized chunks are retained. No automatic retention limit. Docker includes Deno and local yt-dlp EJS. Live-provider compatibility was not verified against a real YouTube stream in this checkpoint.
+- `docker compose ps` shows the service status. `docker compose logs --tail 60 clipper` shows app logs.
+- Open [local diagnostics](http://localhost:7310/api/diagnostics) for FFmpeg, yt-dlp, EJS, Deno, Whisper package and free-space information. Check the port if overridden. Don't share logs containing private source links or local paths.
+- Local development: use Python 3.12, FFmpeg/FFprobe and Deno on PATH. Install `requirements.txt`, use a separate `SHEESH_DATA_DIR`, and run `python -m uvicorn app.main:app --host 127.0.0.1 --port 7310`.
+- Install `httpx` for tests, then run `python -m unittest discover -s tests -v` and `node --check app/static/studio.js && node --check app/static/workflows.js`. The optional browser smoke script needs Playwright and Chromium.
+- See [verification notes](docs/VERIFICATION.md) and [reference decisions](docs/REFERENCES.md).

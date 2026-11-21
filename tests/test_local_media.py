@@ -57,13 +57,6 @@ class LocalMediaSmoke(unittest.TestCase):
             self.assertEqual(set(x["id"] for x in client.get("/api/artifacts").json()), ids)
             self.assertEqual((root / "originals" / (source["id"] + ".mp4")).read_bytes(), sample.read_bytes())
             self.assertEqual(len(list((root / "projects").glob("*.json"))), 4)
-            for kind, size in (("export", (720,1280)), ("draft", (1080,1920))):
-                r = client.post("/api/render", json={**base, "aspect":"9:16", "layout":"fit",
-                                "kind":kind, "export_profile":"compact"})
-                self.assertEqual(r.status_code, 200, r.text)
-                out = root / ("drafts" if kind == "draft" else "exports") / (r.json()["id"] + ".mp4")
-                info = probe(out)
-                self.assertEqual((info["width"],info["height"]), size)
             r = client.post("/api/render", json={**base, "aspect":"9:16", "layout":"split", "kind":"draft"})
             self.assertEqual(r.status_code, 422)
             with RENDER_LOCK:

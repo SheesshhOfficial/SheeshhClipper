@@ -4,14 +4,17 @@ import math
 import os
 from pathlib import Path
 import subprocess
+from tempfile import TemporaryDirectory
+from threading import Lock
 from uuid import uuid4
 
+HEAVY_LOCK = Lock()
 COMPACT = {"9:16": (720, 1280), "16:9": (1280, 720), "1:1": (720, 720)}
 SIZES = {"9:16": (1080, 1920), "16:9": (1920, 1080), "1:1": (1080, 1080)}
 
 def root() -> Path:
     value = Path(os.environ.get("SHEESH_DATA_DIR", "data")).resolve()
-    for name in ("originals", "projects", "drafts", "exports"):
+    for name in ("originals", "projects", "drafts", "exports", "downloads", "live-chunks", "cache", "models", "transcripts", "logs"):
         (value / name).mkdir(parents=True, exist_ok=True)
     return value
 
@@ -51,7 +54,8 @@ def zoom(w: int, h: int, x: float, y: float) -> str:
             f"crop={w}:{h}:(in_w-out_w)*{x:.9f}:(in_h-out_h)*{y:.9f},setsar=1")
 
 def filter_graph(record: dict, request) -> str:
-    w, h = (COMPACT if request.kind == "export" and request.export_profile == "compact" else SIZES)[request.aspect]
+    compact = request.kind == "export" and request.export_profile == "compact"
+    w, h = (COMPACT if compact else SIZES)[request.aspect]
     src = f"[0:{record['stream']}]"
     if request.layout == "fit":
         return (f"{src}scale={w}:{h}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
@@ -65,26 +69,81 @@ def filter_graph(record: dict, request) -> str:
     cw, ch = int(cam.w * fw) // 2 * 2, int(cam.h * fh) // 2 * 2
     if min(cw, ch) < 2:
         raise ValueError("Facecam is smaller than two source pixels")
+    if request.layout == "pip":
+        ow = int(w * request.facecam_scale) // 2 * 2
+        oh = max(2, (int(ow * 9 / 16) // 2) * 2)
+        px, py = (int((w-ow) * request.facecam_pos_x) // 2 * 2,
+                  int((h-oh) * request.facecam_pos_y) // 2 * 2)
+        return (f"{src}split=2[game][face];"
+                f"[game]{zoom(w,h,request.focus_x,request.focus_y)}[g];"
+                f"[face]crop={cw}:{ch}:{cx}:{cy},{zoom(ow,oh,request.facecam_focus_x,request.facecam_focus_y)}[f];"
+                f"[g][f]overlay={px}:{py}:shortest=1,format=yuv420p[out]")
     if request.aspect == "16:9":
-        gw = (w * 2 // 3) // 2 * 2
+        gw = (int(w * request.gameplay_share + 1e-8)) // 2 * 2
         gw, gh, cwout, chout, stack = gw, h, w-gw, h, "hstack"
     else:
-        gh = (h * 2 // 3) // 2 * 2
+        gh = (int(h * request.gameplay_share + 1e-8)) // 2 * 2
         gw, gh, cwout, chout, stack = w, gh, w, h-gh, "vstack"
+    panels = "[f][g]" if request.facecam_first else "[g][f]"
     return (f"{src}split=2[game][face];"
             f"[game]{zoom(gw,gh,request.focus_x,request.focus_y)}[g];"
-            f"[face]crop={cw}:{ch}:{cx}:{cy},{zoom(cwout,chout,.5,.5)}[f];"
-            f"[g][f]{stack}=inputs=2,format=yuv420p[out]")
+            f"[face]crop={cw}:{ch}:{cx}:{cy},{zoom(cwout,chout,request.facecam_focus_x,request.facecam_focus_y)}[f];"
+            f"{panels}{stack}=inputs=2,format=yuv420p[out]")
 
-def render(source: Path, target: Path, record: dict, request) -> None:
+def _timestamp(seconds: float) -> str:
+    ms = round(seconds * 1000)
+    return f"{ms//3600000:02}:{ms//60000%60:02}:{ms//1000%60:02},{ms%1000:03}"
+
+def _captions(path: Path, rows, start: float, end: float) -> bool:
+    chunks = []
+    for row in rows:
+        a, b = max(start, float(row["start"])), min(end, float(row["end"]))
+        # Escape SRT/ASS styling and keep text as text. FFmpeg sees a fixed filename only.
+        plain = str(row["text"]).replace("{", "(").replace("}", ")").replace("<", "‹").replace(">", "›")
+        plain = " ".join(plain.replace(chr(92), "/").split())
+        if plain and b-a >= .001:
+            chunks.append(f"{len(chunks)+1}\n{_timestamp(a-start)} --> {_timestamp(b-start)}\n{plain}\n")
+    if chunks:
+        path.write_text("\n".join(chunks), encoding="utf-8")
+    return bool(chunks)
+
+def _render_part(source, target, record, request, start, end, captions, scratch):
     graph = filter_graph(record, request)
+    if captions and _captions(scratch / "captions.srt", captions, start, end):
+        graph = graph.removesuffix("[out]") + "[clean];[clean]subtitles=captions.srt:force_style='FontName=DejaVu Sans,FontSize=20,Outline=2,MarginV=22'[out]"
     compact = request.kind == "export" and request.export_profile == "compact"
-    # Explicitly use MP4 demuxing and do not permit network protocols or shell expansion.
     args = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-n",
-            "-protocol_whitelist", "file,pipe", "-f", "mov", "-ss", f"{request.start:.9f}",
-            "-i", str(source), "-t", f"{request.end-request.start:.9f}",
+            "-protocol_whitelist", "file,pipe", "-f", "mov", "-ss", f"{start:.9f}",
+            "-i", str(source.resolve()), "-t", f"{end-start:.9f}",
             "-filter_complex_threads", "1", "-filter_complex", graph, "-map", "[out]",
             "-map", "0:a:0?", "-map_metadata", "-1", "-map_chapters", "-1",
             "-c:v", "libx264", "-preset", "fast" if compact else "veryfast", "-crf", "27" if compact else "22",
-            "-c:a", "aac", "-b:a", "112k" if compact else "160k", "-movflags", "+faststart", str(target)]
-    subprocess.run(args, check=True, capture_output=True)
+            "-c:a", "aac", "-b:a", "112k" if compact else "160k", "-movflags", "+faststart", str(target.resolve())]
+    subprocess.run(args, check=True, capture_output=True, cwd=scratch)
+
+def render(source: Path, target: Path, record: dict, request, *, captions=()) -> None:
+    with TemporaryDirectory(prefix="render-", dir=root() / "cache") as path:
+        scratch = Path(path)
+        if not request.cuts and not request.layout_changes:
+            _render_part(source, target, record, request, request.start, request.end, captions, scratch)
+            return
+        segments = []
+        cursor = request.start
+        for cut in request.cuts:
+            segments.append((cursor, cut.start))
+            cursor = cut.end
+        segments.append((cursor, request.end))
+        pieces = []
+        for start, end in segments:
+            boundaries = [start, *(change.at for change in request.layout_changes if start < change.at < end), end]
+            for a, b in zip(boundaries, boundaries[1:]):
+                pieces.append((a, b))
+        for i, (start, end) in enumerate(pieces):
+            active = next((c for c in reversed(request.layout_changes) if c.at <= start), None)
+            edited = request.model_copy(update={name: getattr(active, name) for name in type(active).model_fields if name != "at"}) if active else request
+            _render_part(source, scratch / f"part-{i}.mp4", record, edited, start, end, captions, scratch)
+        (scratch / "join.txt").write_text("".join(f"file part-{i}.mp4\n" for i in range(len(pieces))), encoding="ascii")
+        subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-n",
+                        "-protocol_whitelist", "file,pipe", "-f", "concat", "-safe", "1",
+                        "-i", "join.txt", "-c", "copy", "-movflags", "+faststart", str(target.resolve())],
+                       check=True, capture_output=True, cwd=scratch)

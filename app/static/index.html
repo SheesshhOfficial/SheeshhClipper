@@ -7,7 +7,7 @@
 <title>SheeshhClipper | Local Studio</title>
 <link rel="stylesheet" href="/static/studio.css">
 <script defer src="/static/studio.js"></script>
-<script defer src="/static/ingest.js"></script>
+<script defer src="/static/workflows.js"></script>
 </head>
 <body>
 <header class="site-header"><div class="identity"><span class="logo" aria-hidden="true">✂</span><div><strong>SheeshhClipper</strong><small>LOCAL STUDIO</small></div></div><span class="status"><i></i> Local workspace</span></header>
@@ -19,6 +19,7 @@
 <label>Capture type<select id="ingest-kind"><option value="vod">YouTube VOD</option><option value="live">Live capture</option></select></label>
 <label>Video address<input id="ingest-url" class="number" type="url" required placeholder="https://www.youtube.com/watch?v=…"></label>
 <button type="submit" id="ingest-submit" class="lite">Download VOD</button>
+<label id="auto-analyze-row" class="check-row" hidden><input id="auto-analyze" type="checkbox"> Suggest highlights on completed chunks (local audio only; skips if busy)</label>
 </form>
 <p class="hint ingest-hint" id="ingest-hint">Download a video you own or have permission to use. The original stays on this machine.</p>
 <div id="ingest-jobs" class="stack"></div>
@@ -33,6 +34,7 @@
 <video id="video" preload="metadata" playsinline hidden></video>
 <div class="transport">
 <button id="play" type="button" class="lite" disabled>Play</button><label class="sr" for="seek">Playhead</label><input type="range" min="0" max="1" step=".01" id="seek" value="0" disabled><span id="play-time">00:00 / 00:00</span>
+<button id="play-edit" type="button" class="lite" disabled>Play trim</button>
 </div>
 <div class="panel-bottom"><div id="source-meta" class="muted">Add an MP4 for the most reliable browser preview.</div><button id="mark-face" type="button" class="lite" disabled>Draw facecam region</button></div>
 </section>
@@ -44,16 +46,29 @@
 <div class="trim">
 <label>Start (s)<input class="number" id="start" type="number" min="0" step=".01" value="0"></label><button id="start-here" type="button" class="lite" disabled>Set from playhead</button>
 <label>End (s)<input class="number" id="end" type="number" min="0" step=".01" value="0"></label><button id="end-here" type="button" class="lite" disabled>Set from playhead</button>
-</div></fieldset>
+</div><details class="inner-cuts"><summary>Remove sections inside the clip</summary><div id="cuts"></div><button id="add-cut" type="button" class="text-button">+ Add removed section</button></details></fieldset>
 
 <fieldset><legend>Frame</legend><div class="two">
 <label>Aspect ratio<select id="aspect"><option value="9:16" selected>9:16 Vertical</option><option value="16:9">16:9 Landscape</option><option value="1:1">1:1 Square</option></select></label>
-<label>Layout<select id="layout"><option value="fit">Fit</option><option value="fill">Fill / crop</option><option value="split">Split / facecam</option></select></label>
+<label>Layout<select id="layout"><option value="fit">Fit</option><option value="fill">Fill / crop</option><option value="split">Split / facecam</option><option value="pip">Picture-in-picture</option></select></label>
 <label>Gameplay X <input id="focus-x" type="range" min="0" max="1" value=".5" step=".01"></label>
 <label>Gameplay Y <input id="focus-y" type="range" min="0" max="1" value=".5" step=".01"></label>
-</div></fieldset>
+</div><div id="split-controls" hidden class="two split-controls">
+<label id="gameplay-share-row">Gameplay share <input id="gameplay-share" type="range" min=".25" max=".75" value=".6666666667" step="any"></label>
+<label id="facecam-first-row" class="check-row"><input id="facecam-first" type="checkbox"> Facecam first (top or left)</label>
+<label>Facecam X <input id="facecam-focus-x" type="range" min="0" max="1" value=".5" step=".01"></label>
+<label>Facecam Y <input id="facecam-focus-y" type="range" min="0" max="1" value=".5" step=".01"></label>
+</div><div id="pip-controls" hidden class="two split-controls">
+<label>Facecam size <input id="facecam-scale" type="range" min=".15" max=".5" value=".28" step=".01"></label>
+<label>Overlay left / right <input id="facecam-pos-x" type="range" min="0" max="1" value=".95" step=".01"></label>
+<label>Overlay top / bottom <input id="facecam-pos-y" type="range" min="0" max="1" value=".04" step=".01"></label>
+</div><details class="inner-cuts"><summary>Time-based layouts</summary>
+<p class="hint">Set framing above, capture it at a source timestamp, then set the baseline framing. A captured change stays active until the next one.</p>
+<div class="layout-toolbar"><button id="add-layout" type="button" class="lite">Capture layout at playhead</button><label class="check-row"><input id="preview-layouts" type="checkbox" checked> Preview saved layout changes</label></div>
+<div id="layout-changes"></div>
+</details></fieldset>
 
-<fieldset><legend>Facecam region</legend><p class="hint">Draw over the original preview, or enter relative values from 0 to 1. Split mode uses this rectangle.</p>
+<fieldset><legend>Facecam region</legend><p class="hint">Draw over the original preview, or enter relative values from 0 to 1. Split and picture-in-picture use this rectangle.</p>
 <div class="region">
 <label>X<input class="number" id="face-x" min="0" max="1" step=".001" type="number"></label>
 <label>Y<input class="number" id="face-y" min="0" max="1" step=".001" type="number"></label>
@@ -62,11 +77,26 @@
 </div>
 <button id="clear-face" type="button" class="text-button">Clear region</button></fieldset>
 
-<div class="actions"><button id="draft" type="button" class="lite" disabled>Save draft</button><label>Export quality <select id="export-profile"><option value="high">1080p High</option><option value="compact">720p Compact</option></select></label><button id="export" type="button" class="primary" disabled>Export clip <span aria-hidden="true">↗</span></button></div>
+<p id="edit-warning" class="hint" role="status"></p>
+<div class="actions"><button id="draft" type="button" class="lite" disabled>Save draft</button><label class="profile">Export resolution<select id="export-profile"><option value="high">1080p · High</option><option value="compact">720p · Compact</option></select></label><button id="export" type="button" class="primary" disabled>Export clip <span aria-hidden="true">↗</span></button></div>
 </form></section>
 </div>
 
 <p id="notice" role="status" aria-live="polite"></p>
+<section class="surface analysis" aria-labelledby="analysis-title">
+<div class="panel-top"><div><div class="eyebrow">REVIEW ASSIST</div><h2 id="analysis-title">Suggestions and captions</h2></div></div>
+<form id="analysis-form" class="ingest-form">
+<label>Language<select id="analysis-language"><option value="english">English</option><option value="hinglish">Hinglish</option></select></label>
+<label>Analysis method<select id="analysis-provider"><option value="audio">Local audio signals · no captions</option><option value="whisper">Local Whisper · captions</option><option value="assemblyai">AssemblyAI · cloud captions</option></select></label>
+<button id="analyze" type="submit" class="lite" disabled>Analyze selected source</button>
+<label class="check-row"><input id="visual-motion" type="checkbox" aria-describedby="motion-hint"> Include local motion cues</label>
+<label id="analysis-consent-row" class="check-row" hidden><input type="checkbox" id="analysis-consent"> I agree to send this source’s audio to AssemblyAI for transcription.</label>
+</form>
+<p class="hint ingest-hint" id="motion-hint">Motion cues measure how much the picture changes. They are not event or object recognition.</p>
+<p id="analysis-status" class="hint ingest-hint" role="status">Select a source to look for highlights. Review suggestions before exporting.</p>
+<div id="suggestions" class="stack"></div>
+<div id="captions" class="caption-panel" hidden></div>
+</section>
 <section class="surface gallery" aria-labelledby="gallery-title"><div class="panel-top"><div><div class="eyebrow">03 / OUTPUTS</div><h2 id="gallery-title">Local renders</h2></div><button id="refresh" type="button" class="lite">Refresh</button></div><div id="artifacts" class="artifacts"><p class="muted">No drafts or exports yet.</p></div></section>
 </main>
 </body>
