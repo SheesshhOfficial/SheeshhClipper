@@ -144,7 +144,8 @@ def source_public(source: dict) -> dict:
     return {key: source[key] for key in ("id", "name", "duration", "width", "height", "url")}
 
 def artifact_public(artifact: dict) -> dict:
-    return {key: artifact[key] for key in ("id", "name", "url", "kind")}
+    fields = ("id", "name", "url", "kind", "width", "height", "duration", "bytes")
+    return {key: artifact[key] for key in fields if key in artifact}
 
 @app.get("/api/health")
 def health():
@@ -226,12 +227,14 @@ def store_render(request: Render, *, lock: bool = True):
             captions_for(request.source_id, request.captions_id) if request.captions_id else ()
         )
         media.render(root / "originals" / (request.source_id + ".mp4"), temporary, item, request, captions=captions)
-        if not temporary.exists() or temporary.stat().st_size == 0:
+        size = temporary.stat().st_size if temporary.exists() else 0
+        if not size:
             raise ValueError("Empty render")
-        media.probe(temporary)
+        output = media.probe(temporary)
         temporary.replace(target)
         data = {"id": id, "name": f"{Path(item['name']).stem}-{request.kind}-{id[:8]}.mp4",
-                "url": f"/api/artifacts/{id}/media", "kind": request.kind}
+                "url": f"/api/artifacts/{id}/media", "kind": request.kind, "bytes": size,
+                **{key: output[key] for key in ("width", "height", "duration")}}
         media.write_record(root / "projects" / (id + ".json"), {**data, "edit": request.model_dump()})
         return data
     except ValueError as exc:

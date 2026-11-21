@@ -18,7 +18,7 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 | Find moments | Pick **Local audio** to find audio peaks, or **Local Whisper** or **AssemblyAI** to add transcript cues. Optionally include local frame-motion cues. The suggested timestamps include reasons and are heuristic, not guaranteed good clips. Silent footage gets a clearly labeled review window. Suggested drafts render locally by default. |
 | Review | Apply a suggestion or pick a range yourself. Remove intervals inside the clip. Choose fit, fill, split or picture-in-picture; draw your facecam on the source, adjust gameplay/facecam focus, panel share and order, or overlay position and size, and capture layout changes at source timestamps. |
 | Caption | Pick English or Hinglish. Hinglish is best-effort Roman Hindi mixed with English, not a translation or a guarantee of accuracy. Review or edit cues and burn them into your export, or download a subtitle track. |
-| Export | Keep **1080p High** (same setting as the original editor), or choose **720p Compact** for a smaller file. File size depends on the source and duration. Draft quality is unchanged. Saved edits restore their controls from the gallery. |
+| Export | Keep **1080p High** (same setting as the original editor), or choose **720p Compact** for a smaller file. File size depends on the source and duration. Draft quality is unchanged. Use the Local renders filter to switch between drafts and exports; new renders show their exact dimensions, duration, and file size. Saved edits restore their controls from the gallery. |
 
 ## Privacy and providers
 
@@ -36,5 +36,5 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 - `docker compose ps` shows the service status. `docker compose logs --tail 60 clipper` shows app logs.
 - Open [local diagnostics](http://localhost:7310/api/diagnostics) for FFmpeg, yt-dlp, EJS, Deno, Whisper package and free-space information. Check the port if overridden. Don't share logs containing private source links or local paths.
 - Local development: use Python 3.12, FFmpeg/FFprobe and Deno on PATH. Install `requirements.txt`, use a separate `SHEESH_DATA_DIR`, and run `python -m uvicorn app.main:app --host 127.0.0.1 --port 7310`.
-- Install `httpx` for tests, then run `python -m unittest discover -s tests -v` and `node --check app/static/studio.js && node --check app/static/workflows.js`. The optional browser smoke script needs Playwright and Chromium.
+- Install `httpx` for tests, then run `python -m unittest discover -s tests -v` and `node --check app/static/studio.js && node --check app/static/workflows.js`. Run `node --test tests/test_workflows_ui.cjs` for the focused workflow card checks. The optional browser smoke script needs Playwright and Chromium.
 - See [verification notes](docs/VERIFICATION.md) and [reference decisions](docs/REFERENCES.md).

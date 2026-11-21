@@ -79,6 +79,14 @@ def main():
             page.reload(wait_until="networkidle")
             assert len(page.request.get(studio_url + "/api/artifacts").json()) == 2
             assert page.get_by_text("test scene", exact=False).count() >= 1
+            page.locator("#artifact-filter").select_option("draft")
+            assert page.locator("#artifacts .artifact").count() == 1
+            assert "1 of 2 saved" in page.locator("#artifact-count").inner_text()
+            assert "1080 × 1920" in page.locator("#artifacts .artifact-meta").inner_text()
+            page.locator("#artifact-filter").select_option("export")
+            assert page.locator("#artifacts .artifact").count() == 1
+            page.locator("#artifact-filter").select_option("all")
+            assert page.locator("#artifacts .artifact").count() == 2
             page.get_by_role("button", name="Restore edit").first.click()
             page.wait_for_function("document.querySelector('#start').value === '0.25'")
             assert page.locator("#layout").input_value() == "split"

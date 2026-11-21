@@ -9,9 +9,13 @@ let loop = 0;
 const value = id => $(id).valueAsNumber;
 const clamp = (n,min=0,max=1) => Math.max(min,Math.min(max,n));
 const fmt = n => {const v = Math.max(0,Math.floor(n || 0)); return String(Math.floor(v/60)).padStart(2,'0') + ':' + String(v%60).padStart(2,'0');};
-function announce(text, error=false) {
-  $('notice').textContent = text;
-  $('notice').dataset.error = String(error);
+let noticeTimer;
+function announce(text, error=false, persistent=false) {
+  const notice=$('notice');
+  clearTimeout(noticeTimer);
+  notice.textContent=text;
+  notice.dataset.error=String(error);
+  if(!persistent)noticeTimer=setTimeout(()=>{notice.textContent='';},error?14000:8000);
 }
 async function api(path, init={}) {
   const res = await fetch(path, init);
@@ -27,11 +31,20 @@ function faceRegion() {
   if (x<0 || y<0 || w<=0 || h<=0 || x+w>1.000001 || y+h>1.000001) return null;
   return {x,y,w:Math.min(w,1-x),h:Math.min(h,1-y)};
 }
+function updateExportSummary(duration) {
+  const label=$('export-summary');if(!label)return;
+  const aspect=$('aspect').value, compact=$('export-profile').value==='compact';
+  const short=compact?720:1080, long=compact?1280:1920;
+  const size=aspect==='9:16'?[short,long]:aspect==='16:9'?[long,short]:[short,short];
+  label.textContent=state.source?size.join(' × ')+' · MP4'+(duration>0?' · '+duration.toFixed(2)+' s':''):'Choose a source to see export settings.';
+}
 function updateControls() {
   const has=!!state.source, canPlay=has && video.readyState>=2, dur=state.source?.duration||0;
   const a=value('start'), b=value('end'), valid=has&&Number.isFinite(a)&&Number.isFinite(b)&&a>=0&&b>a&&b<=dur+.0001;
   const cuts=readCuts(a,b);
-  $('clip-length').value=valid && cuts ? Math.max(0,b-a-cuts.reduce((total,c)=>total+c.end-c.start,0)).toFixed(2)+'s' : '0.00s';
+  const length=valid&&cuts?Math.max(0,b-a-cuts.reduce((total,c)=>total+c.end-c.start,0)):0;
+  $('clip-length').value=length.toFixed(2)+' s';
+  updateExportSummary(length);
   ['play','seek','start-here','end-here','mark-face'].forEach(id=>$(id).disabled=!canPlay);
   const hasRegion=faces.some(k=>$('face-'+k).value!=='');
   const faceValid=!!faceRegion() || (!hasRegion && !hasFaceLayout($('layout').value));
@@ -151,23 +164,45 @@ async function sources(selectId, preserve=false) {
 function safeArtifact(p) {
   try {const u=new URL(p,location.href); return u.origin===location.origin?u.href:null;} catch(_){return null;}
 }
-async function artifacts() {
-  const list=await api('/api/artifacts');
-  const host=$('artifacts'); host.replaceChildren();
-  if(!list.length){const p=document.createElement('p');p.className='muted';p.textContent='No drafts or exports yet.';host.append(p);return;}
-  for(const item of list) {
-    const url=safeArtifact(item.url);
-    if(!url) continue;
+let artifactItems=[], artifactRequest=0, lastGalleryView='';
+function readableSize(bytes) {
+  if(!Number.isFinite(bytes)||bytes<=0)return '';
+  return bytes>=1048576?(bytes/1048576).toFixed(1)+' MB':Math.max(1,Math.round(bytes/1024))+' KB';
+}
+function visibleGallery() {
+  const filter=$('artifact-filter')?.value || 'all';
+  const selected=artifactItems.filter(item=>filter==='all'||item.kind===filter);
+  const key=JSON.stringify([filter,selected]);
+  if(key===lastGalleryView)return;
+  lastGalleryView=key;
+  const host=$('artifacts');host.replaceChildren();
+  const count=$('artifact-count');
+  if(count)count.textContent=filter==='all'?artifactItems.length+' saved':selected.length+' of '+artifactItems.length+' saved';
+  if(!selected.length){
+    const p=document.createElement('p');p.className='artifact-empty muted';
+    p.textContent=filter==='draft'?'No drafts yet. Analyze a source or save a draft from the editor.':filter==='export'?'No exports yet. Export a finished clip from the editor.':'Your drafts and exports will appear here.';
+    host.append(p);return;
+  }
+  for(const item of selected) {
+    const url=safeArtifact(item.url);if(!url)continue;
     const card=document.createElement('article');card.className='artifact';
     const tag=document.createElement('span');tag.className='tag';tag.textContent=item.kind==='draft'?'Draft':'Export';
     const h=document.createElement('h3');h.textContent=item.name;
-    const v=document.createElement('video');v.src=url;v.controls=true;v.preload='none';v.playsInline=true;card.append(v);
-    const a=document.createElement('a');a.href=url;a.download='';a.textContent='Download '+(item.kind==='draft'?'draft':'clip');
+    const v=document.createElement('video');v.src=url;v.controls=true;v.preload='none';v.playsInline=true;v.setAttribute('aria-label','Preview '+item.name);card.append(v,tag,h);
+    const parts=[item.width&&item.height?item.width+' × '+item.height:'',Number.isFinite(item.duration)?item.duration.toFixed(2)+' s':'',readableSize(item.bytes)].filter(Boolean);
+    if(parts.length){const meta=document.createElement('p');meta.className='artifact-meta';meta.textContent=parts.join(' · ');card.append(meta);}
+    const a=document.createElement('a');a.href=url;a.download=item.name;a.textContent='Download MP4';
     const restore=document.createElement('button');restore.type='button';restore.className='text-button';
     restore.textContent='Restore edit';restore.addEventListener('click',()=>restoreEdit(item.id,restore));
     const links=document.createElement('div');links.className='artifact-links';links.append(a,restore);
-    card.append(tag,h,links);host.append(card);
+    card.append(links);host.append(card);
   }
+}
+async function artifacts() {
+  const request=++artifactRequest;
+  const list=await api('/api/artifacts');
+  if(request!==artifactRequest)return;
+  artifactItems=list;visibleGallery();
 }
 async function restoreEdit(id,button) {
   if(state.busy)return;
@@ -312,7 +347,7 @@ $('source').addEventListener('change',()=>loadSource($('source').value));
 $('import-button').addEventListener('click',()=>$('import-file').click());
 $('import-file').addEventListener('change',async()=>{
   const f=$('import-file').files[0];$('import-file').value='';if(!f||state.busy)return;
-  state.busy=true;updateControls();announce('Importing '+f.name+'…');
+  state.busy=true;updateControls();announce('Importing '+f.name+'…',false,true);
   const body=new FormData();body.append('file',f);
   try{const newSource=await api('/api/sources',{method:'POST',body});await sources(newSource.id);announce('Source imported.');}
   catch(e){announce(e.message,true);} finally{state.busy=false;updateControls();}
@@ -333,13 +368,16 @@ async function render(kind){
   if(payload.layout==='pip'){payload.facecam_scale=value('facecam-scale');payload.facecam_pos_x=value('facecam-pos-x');payload.facecam_pos_y=value('facecam-pos-y');}
   document.dispatchEvent(new CustomEvent('sheesh-render',{detail:payload}));
   if(face)payload.facecam=face;
-  state.busy=true;updateControls();announce(kind==='draft'?'Saving draft…':'Rendering clip…');
+  state.busy=true;updateControls();announce(kind==='draft'?'Saving draft…':'Rendering clip…',false,true);
   try{
     const saved=await api('/api/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    announce((kind==='draft'?'Draft saved: ':'Export ready: ')+saved.name);
+    const size=readableSize(saved.bytes);
+    announce((kind==='draft'?'Draft saved. ':'Export saved. ')+saved.name+(size?' ('+size+')':'')+'. Find it in Local renders.');
     try{await artifacts();}catch(e){announce('Saved, but the gallery could not refresh. '+e.message,true);}
   }catch(e){announce(e.message,true);}finally{state.busy=false;updateControls();}
 }
 $('draft').addEventListener('click',()=>render('draft'));$('export').addEventListener('click',()=>render('export'));
+$('artifact-filter')?.addEventListener('change',visibleGallery);
+$('export-profile').addEventListener('change',updateControls);
 $('refresh').addEventListener('click',()=>artifacts().catch(e=>announce(e.message,true)));
 Promise.allSettled([sources(),artifacts()]).then(results=>{for(const r of results)if(r.status==='rejected')announce(r.reason.message,true);});

@@ -5,16 +5,44 @@ const activeAnalysis = new Set(['queued','running']);
 let ingestReading=false, ingestSending=false, ingestFirst=true, analysisSending=false, analysisReading=false;
 const knownSources = new Set();
 let analysisProviders = null, analysisGeneration=0, analysisJobs=[], activeCaption=null;
-let lastAnalysisHash='', lastIngestHash='';
+let lastAnalysisHash='', lastIngestHash='', ingestPollFailed=false;
+const stoppingIngest = new Set();
+const statusLabel = {queued:'Queued', running:'In progress', stopping:'Finishing', completed:'Ready', stopped:'Stopped', failed:'Needs attention'};
 function node(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
-function button(text,handler){const b=node('button',text,'lite');b.type='button';b.addEventListener('click',handler);return b;}
-function card(title,status,description) {
+function button(text,handler,key){const b=node('button',text,'lite');b.type='button';if(key)b.dataset.workflowAction=key;b.addEventListener('click',handler);return b;}
+function saveWorkflowFocus(host){
+  const el=document.activeElement;
+  if(!el||!host.contains(el))return null;
+  const card=el.closest('[data-workflow-key]');
+  return card?{card:card.dataset.workflowKey,action:el.dataset.workflowAction}:null;
+}
+function restoreWorkflowFocus(host,saved){
+  if(!saved)return;
+  const card=Array.from(host.children).find(el=>el.dataset.workflowKey===saved.card);
+  if(!card)return;
+  const action=saved.action&&Array.from(card.querySelectorAll('[data-workflow-action]'))
+    .find(el=>el.dataset.workflowAction===saved.action&&!el.disabled);
+  if(action)action.focus({preventScroll:true});
+  else{card.tabIndex=-1;card.focus({preventScroll:true});}
+}
+function card(title,status,description,state=status) {
   const body=node('article',undefined,'work-card'),left=node('div',undefined,'row-text'),actions=node('div',undefined,'row-actions');
+  if(state)body.dataset.state=state;
   left.append(node('strong',title)); if(status)left.append(node('span',status,'row-status'));if(description)left.append(node('p',description));
   body.append(left,actions);return {body,actions,left};
 }
 async function post(path,body) {
   return api(path,{method:'POST',...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})});
+}
+async function openIngestSource(sourceId){
+  if(state.busy){announce('Wait for the current editor action to finish before switching sources.');return;}
+  try{
+    await sources(sourceId);
+    if(String(state.source?.id)!==String(sourceId))throw new Error('The saved source is not available yet.');
+    $('preview-title').scrollIntoView({block:'nearest'});
+    $('preview-title').setAttribute('tabindex','-1');$('preview-title').focus({preventScroll:true});
+    announce('Imported source opened. Set the trim and frame before exporting.');
+  }catch(e){announce('Could not open the source: '+e.message,true);}
 }
 function ingestMode(){
   const live=$('ingest-kind').value==='live';
@@ -26,36 +54,59 @@ function ingestMode(){
 $('ingest-kind').addEventListener('change',ingestMode);
 function paintIngest(jobs) {
   const hash=JSON.stringify(jobs);if(hash===lastIngestHash)return;lastIngestHash=hash;
-  const host=$('ingest-jobs');host.replaceChildren();
-  for(const j of jobs.slice(0,10)){
-    const outputs=j.outputs||[], ready=outputs.filter(o=>o.source_id);
-    const title=j.kind==='live'?'Live capture':'VOD';
-    const description=[j.message,ready.length?`${ready.length} source${ready.length===1?'':'s'} ready`:''].filter(Boolean).join(' · ');
-    const {body,actions}=card(title,j.status,description);
+  const host=$('ingest-jobs'), focus=saveWorkflowFocus(host);host.replaceChildren();
+  if(!jobs.length){host.append(node('p','Imported videos and saved live chunks will appear here. Use Import video above for a local MP4.','hint workflow-empty'));return;}
+  const visible=[...jobs.filter(j=>activeIngest.has(j.status)),...jobs.filter(j=>!activeIngest.has(j.status))].slice(0,10);
+  for(const j of visible){
+    const ready=(j.outputs||[]).filter(o=>o.source_id);
+    const isLive=j.kind==='live', videoId=new URLSearchParams((j.url||'').split('?')[1]||'').get('v');
+    const title=(isLive?'YouTube live capture':'YouTube video')+(videoId?' · '+videoId:'');
+    let stage=statusLabel[j.status]||'Status unknown';
+    if(j.status==='running')stage=isLive?'Capturing':(/editing copy/i.test(j.message||'')?'Preparing editor copy':'Downloading');
+    if(j.status==='completed')stage=isLive?'Capture complete':'Imported';
+    const {body,actions,left}=card(title,stage,j.message||'',j.status);
+    body.dataset.workflowKey='ingest:'+j.id;
+    if(!isLive&&activeIngest.has(j.status)){
+      const progress=node('progress',undefined,'job-progress');
+      progress.setAttribute('aria-label',stage+' for YouTube import');
+      left.append(progress);
+    }
+    if(ready.length)left.append(node('p',isLive?`${ready.length} saved chunk${ready.length===1?'':'s'} · available in Sources`:'Available in Sources. Your original is retained.'));
+    else if(isLive&&j.status==='running')left.append(node('p','Waiting for the first chunk to finish. Keep the local app running.'));
     const newest=ready.at(-1);
-    if(newest?.analysis_id)body.querySelector('.row-text').append(node('p','Latest chunk: local highlight analysis queued. Open the source to review.'));
-    else if(newest?.analysis_note)body.querySelector('.row-text').append(node('p',newest.analysis_note));
-    if(activeIngest.has(j.status)&&j.status!=='stopping')actions.append(button('Stop',async()=>{
-      try{await post('/api/ingest/'+encodeURIComponent(j.id)+'/stop');await refreshIngest(true);}catch(e){announce(e.message,true);}
-    }));
-    if(ready.length)actions.append(button('Open latest source',async()=>{
-      try{await sources(ready.at(-1).source_id);$('preview-title').scrollIntoView({block:'nearest'});}catch(e){announce(e.message,true);}
-    }));
+    if(newest?.analysis_id)left.append(node('p','Highlight review is queued for the latest chunk.'));
+    else if(newest?.analysis_note)left.append(node('p',newest.analysis_note));
+    if(activeIngest.has(j.status)&&j.status!=='stopping'){
+      const stop=button(isLive?'Stop capture':'Cancel download',async()=>{
+        if(stoppingIngest.has(j.id))return;
+        stoppingIngest.add(j.id);stop.disabled=true;
+        try{await post('/api/ingest/'+encodeURIComponent(j.id)+'/stop');await refreshIngest(true);}
+        catch(e){announce('Could not stop the job: '+e.message,true);}
+        finally{stoppingIngest.delete(j.id);stop.disabled=false;}
+      },'stop');
+      stop.disabled=stoppingIngest.has(j.id);actions.append(stop);
+    }
+    if(newest)actions.append(button(isLive?'Edit latest chunk':'Open in editor',()=>openIngestSource(newest.source_id),'open'));
     host.append(body);
   }
+  restoreWorkflowFocus(host,focus);
 }
 async function refreshIngest(report=false){
   if(ingestReading)return;ingestReading=true;
   try{
     const jobs=await api('/api/ingest');
-    if(!Array.isArray(jobs))return;
+    if(!Array.isArray(jobs))throw new Error('Job status is not available.');
+    if(ingestPollFailed){ingestPollFailed=false;lastIngestHash='';}
     const visible=jobs.flatMap(j=>(j.outputs||[]).map(o=>o.source_id).filter(Boolean));
     const unseen=visible.some(id=>!knownSources.has(id));
     if(unseen&&!ingestFirst&&!state.busy)await sources(undefined,true);
     if(!state.busy||ingestFirst)visible.forEach(id=>knownSources.add(id));
     ingestFirst=false;
     paintIngest(jobs);
-  }catch(e){if(report)announce('Capture: '+e.message,true);}finally{ingestReading=false;}
+  }catch(e){
+    if(!ingestPollFailed){$('ingest-jobs').prepend(node('p','Import status is temporarily unavailable. Retrying automatically.','hint workflow-empty'));ingestPollFailed=true;}
+    if(report)announce('Could not refresh import status: '+e.message,true);
+  }finally{ingestReading=false;}
 }
 $('ingest-form').addEventListener('submit',async e=>{
   e.preventDefault();if(ingestSending)return;
@@ -68,6 +119,10 @@ $('ingest-form').addEventListener('submit',async e=>{
   try{await post('/api/ingest',payload);announce(kind==='live'?'Live capture queued.':'VOD download queued.');await refreshIngest(true);}
   catch(e){announce(e.message,true);}finally{ingestSending=false;$('ingest-submit').disabled=false;}
 });
+function analysisStatus(text){
+  const status=$('analysis-status');
+  if(status.textContent!==text)status.textContent=text;
+}
 function analysisControl() {
   const name=$('analysis-provider').value, cloud=name==='assemblyai', available=analysisProviders?.[name]?.available===true;
   $('analysis-consent-row').hidden=!cloud;
@@ -95,31 +150,37 @@ function selectSuggestion(s) {
   $('start').value=String(start);$('end').value=String(end);$('cuts').replaceChildren();
   if(video.readyState>=1)video.currentTime=start;
   updateControls();paint();refreshCaptionView();
-  $('edit-title').scrollIntoView({block:'nearest'});
+  const editTitle=$('edit-title');
+  editTitle.scrollIntoView({block:'nearest'});
+  editTitle.setAttribute('tabindex','-1');editTitle.focus({preventScroll:true});
+  $('edit-title').setAttribute('tabindex','-1');$('edit-title').focus({preventScroll:true});
   announce('Suggested trim loaded. Adjust it before saving or exporting.');
 }
 function paintAnalysis(jobs) {
   const hash=JSON.stringify(jobs);if(hash===lastAnalysisHash)return;lastAnalysisHash=hash;
-  const host=$('suggestions');host.replaceChildren();
+  const host=$('suggestions'), focus=saveWorkflowFocus(host);host.replaceChildren();
   for(const j of jobs.slice(0,5)){
     const provider={audio:'Audio signals',whisper:'Local Whisper',assemblyai:'AssemblyAI'}[j.provider]||'Analysis';
     const method=provider+(j.visual_motion?' + motion':'');
-    const {body,actions,left}=card(method+' / '+(j.language==='hinglish'?'Hinglish':'English'),j.status,j.message||'');
-    if(j.captions?.length)actions.append(button('Review captions',()=>setCaption(j)));
-    if(j.status==='completed'&&!j.suggestions?.length)left.append(node('p','No highlights suggested.'));
+    const {body,actions,left}=card(method+' · '+(j.language==='hinglish'?'Hinglish':'English'),statusLabel[j.status]||'Status unknown',j.message||'',j.status);
+    body.dataset.workflowKey='analysis:'+j.id;
+    if(j.captions?.length)actions.append(button('Review captions',()=>setCaption(j),'captions'));
+    if(j.status==='completed'&&!j.suggestions?.length)left.append(node('p','No candidate clips were found. You can still trim this source by hand.'));
     host.append(body);
     for(const [i,s] of (j.suggestions||[]).entries()){
       const clip=card('Suggestion '+(i+1)+' · '+fmtDetail(s.start)+' to '+fmtDetail(s.end),'',s.reason||'Candidate for manual review');
+      clip.body.dataset.workflowKey='suggestion:'+j.id+':'+(s.id??(s.start+':'+s.end));
       if(Number.isFinite(s.score))clip.left.append(node('p','Ranking score: '+Number(s.score.toFixed(2))+' (not a performance prediction)'));
-      clip.actions.append(button('Load trim',()=>selectSuggestion(s)));
+      clip.actions.append(button('Load trim',()=>selectSuggestion(s),'load'));
       if(s.draft?.id){
-        clip.actions.append(button('Restore draft edit',event=>restoreEdit(s.draft.id,event.currentTarget)));
+        clip.actions.append(button('Restore draft edit',event=>restoreEdit(s.draft.id,event.currentTarget),'restore'));
         const url=safeArtifact(s.draft.url);
-        if(url){const link=node('a','Play draft','lite');link.href=url;link.target='_blank';link.rel='noopener';clip.actions.append(link);}
+        if(url){const link=node('a','Play draft','lite');link.href=url;link.target='_blank';link.rel='noopener';link.dataset.workflowAction='play';clip.actions.append(link);}
       }
       host.append(clip.body);
     }
   }
+  restoreWorkflowFocus(host,focus);
 }
 async function refreshAnalysis(report=false){
   if(analysisReading||!state.source)return;analysisReading=true;
@@ -132,18 +193,25 @@ async function refreshAnalysis(report=false){
     analysisJobs=jobs;
     if(jobs.some(j=>(j.suggestions||[]).some(s=>s.draft?.id&&!previousDrafts.has(s.draft.id))))artifacts().catch(()=>{});
     paintAnalysis(jobs);
-    $('analysis-status').textContent=jobs.some(j=>activeAnalysis.has(j.status))?'Analysis is running locally or with the selected provider. You can keep editing.':'Load a suggested trim, then review boundaries and captions before exporting.';
-  }catch(e){if(report)$('analysis-status').textContent='Analysis: '+e.message;}
+    const active=jobs.find(j=>activeAnalysis.has(j.status)), latest=jobs[0];
+    analysisStatus(active?(active.message||'Analysis is queued.')+' You can keep editing.':
+      !latest?'No analysis yet. Select a method and run it to look for candidate clips.':
+      latest.status==='failed'?'The latest analysis did not finish. Check the job below, retry, or keep editing manually.':
+      latest.suggestions?.length?'Load a suggested trim to review its start and end. Nothing is exported automatically.':
+      latest.captions?.length?'Captions are available to review. No candidate clips were found.':
+      'No candidate clips were found. Set the start and end manually to make your clip.');
+  }catch(e){if(gen===analysisGeneration&&source===String(state.source?.id)&&(report||!analysisJobs.length))analysisStatus('Could not load analysis results. Retrying automatically.');}
   finally{analysisReading=false;if(gen!==analysisGeneration&&state.source)refreshAnalysis(true);}
 }
 $('analysis-form').addEventListener('submit',async e=>{
   e.preventDefault();if(analysisSending||!state.source||$('analyze').disabled)return;
-  const source_id=state.source.id,provider=$('analysis-provider').value,language=$('analysis-language').value;
+  const generation=analysisGeneration, source_id=state.source.id,provider=$('analysis-provider').value,language=$('analysis-language').value;
   const allow_cloud=provider==='assemblyai'&&$('analysis-consent').checked;
   const visual_motion=$('visual-motion').checked;
   $('analysis-consent').checked=false;analysisSending=true;analysisControl();
-  try{await post('/api/analysis',{source_id,provider,language,allow_cloud,visual_motion});announce('Analysis queued.');await refreshAnalysis(true);}
-  catch(e){announce(e.message,true);}finally{analysisSending=false;analysisControl();}
+  analysisStatus('Starting analysis for the selected source…');
+  try{await post('/api/analysis',{source_id,provider,language,allow_cloud,visual_motion});if(generation===analysisGeneration){announce('Analysis queued.');await refreshAnalysis(true);}}
+  catch(e){if(generation===analysisGeneration){analysisStatus('Could not start analysis: '+e.message);announce(e.message,true);}}finally{analysisSending=false;analysisControl();}
 });
 function setCaption(job, restored=null,enabled=false) {
   const cues=(restored||job?.captions||[]).map(c=>({start:c.start,end:c.end,text:c.text}));
@@ -199,7 +267,9 @@ function refreshCaptionView() {
 }
 document.addEventListener('sheesh-source',()=>{
   analysisGeneration++;analysisJobs=[];lastAnalysisHash='';$('suggestions').replaceChildren();setCaption(null);
-  $('analysis-consent').checked=false;analysisControl();refreshAnalysis(true);
+  $('analysis-consent').checked=false;analysisControl();
+  analysisStatus(state.source?'Checking this source for saved analysis…':'Select a source to look for candidate clips.');
+  refreshAnalysis(true);
 });
 document.addEventListener('sheesh-edit-restored',async e=>{
   const edit=e.detail, generation=analysisGeneration;

@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -53,10 +54,25 @@ class LocalMediaSmoke(unittest.TestCase):
                 meta = probe(path)
                 self.assertEqual((meta["width"], meta["height"]), size)
                 self.assertAlmostEqual(meta["duration"], .55, delta=.09)
+                self.assertEqual((current["width"], current["height"]), size)
+                self.assertEqual(current["bytes"], path.stat().st_size)
+                self.assertEqual(current["duration"], meta["duration"])
                 self.assertEqual(client.get(current["url"], headers={"Range": "bytes=0-7"}).status_code, 206)
             self.assertEqual(set(x["id"] for x in client.get("/api/artifacts").json()), ids)
             self.assertEqual((root / "originals" / (source["id"] + ".mp4")).read_bytes(), sample.read_bytes())
             self.assertEqual(len(list((root / "projects").glob("*.json"))), 4)
+            saved = client.get("/api/artifacts").json()
+            self.assertTrue(all(item["bytes"] > 0 and item["duration"] > 0 for item in saved))
+            legacy = saved[0]
+            recipe = root / "projects" / (legacy["id"] + ".json")
+            record = json.loads(recipe.read_text(encoding="utf-8"))
+            for key in ("width", "height", "bytes", "duration"):
+                del record[key]
+            recipe.write_text(json.dumps(record), encoding="utf-8")
+            listed = next(item for item in client.get("/api/artifacts").json() if item["id"] == legacy["id"])
+            self.assertNotIn("bytes", listed)
+            self.assertEqual(client.get(legacy["url"]).status_code, 200)
+            self.assertIn("edit", client.get("/api/artifacts/" + legacy["id"]).json())
             r = client.post("/api/render", json={**base, "aspect":"9:16", "layout":"split", "kind":"draft"})
             self.assertEqual(r.status_code, 422)
             with RENDER_LOCK:
