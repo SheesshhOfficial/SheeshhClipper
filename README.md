@@ -14,7 +14,7 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 
 | Step | What to do |
 | --- | --- |
-| Choose a source | Upload an MP4, download a finished public YouTube video, or start a public live capture. Live capture writes short playable segments; open a completed segment as a source. Stop saves already-closed segments and attempts to finish the current one. Optional audio-only suggestions start when a segment closes, if the analysis worker is free. |
+| Choose a source | Upload an MP4, download a finished public YouTube video, or start a public live capture. Live capture writes short playable segments; open a completed segment as a source. If the live event has ended and its replay is available, use YouTube VOD. Stop saves already-closed segments and attempts to finish the current one. Optional audio-only suggestions start when a segment closes, if the analysis worker is free. |
 | Find moments | Pick **Local audio** to find audio peaks, or **Local Whisper** or **AssemblyAI** to add transcript cues. Optionally include local frame-motion cues. The suggested timestamps include reasons and are heuristic, not guaranteed good clips. Silent footage gets a clearly labeled review window. Suggested drafts render locally by default. |
 | Review | Apply a suggestion or pick a range yourself. Remove intervals inside the clip. Choose fit, fill, split or picture-in-picture; draw your facecam on the source, adjust gameplay/facecam focus, panel share and order, or overlay position and size, and capture layout changes at source timestamps. |
 | Caption | Pick English or Hinglish. Hinglish is best-effort Roman Hindi mixed with English, not a translation or a guarantee of accuracy. Review or edit cues and burn them into your export, or download a subtitle track. |
@@ -25,6 +25,7 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 - Local MP4 editing and audio scoring need no credential or cloud provider. Whisper runs locally on CPU and fetches the model on first use. The model cache is local.
 - Optional AssemblyAI: copy `.env.example` to `.env`, set `ASSEMBLYAI_API_KEY`, then restart with `docker compose up -d`. Select AssemblyAI and confirm on each run before sending the selected source's audio to that provider. It may incur charges on your account. Your video, tokens, and provider URLs are not included in the published code.
 - YouTube ingest sends the public link to YouTube and uses yt-dlp, bundled EJS scripts and Deno. No browser cookies, login, or bypasses. YouTube may restrict a specific video, client, or IP; private, protected, upcoming, or unavailable sources are not supported.
+- Public live capture prefers HLS at 720p or below and can fall back to larger renditions or separate HLS audio and video, if supplied by YouTube. The local editing chunks stay at or below 1280 × 720.
 - Live operates on closed chunks, not as a continuous Twitch/YouTube chat listener. Clips spanning multiple chunks, chat spike scoring, GPU-specific encoding and learning-based gameplay vision are not included. CPU is the default; a live transcode can overlap with one render or analysis.
 
 ## Keep your data
@@ -33,7 +34,7 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 
 ## Verify or troubleshoot
 
-- `docker compose ps` shows the service status. `docker compose logs --tail 60 clipper` shows app logs.
+- `docker compose ps` shows the service status. `docker compose logs --tail 60 clipper` shows app logs. If YouTube ingest fails, check the import card and the matching `ingest.log` under `data/downloads/` (VOD) or `data/live-chunks/` (live). The yt-dlp error usually precedes any FFmpeg error about empty input.
 - Open [local diagnostics](http://localhost:7310/api/diagnostics) for FFmpeg, yt-dlp, EJS, Deno, Whisper package and free-space information. Check the port if overridden. Don't share logs containing private source links or local paths.
 - Local development: use Python 3.12, FFmpeg/FFprobe and Deno on PATH. Install `requirements.txt`, use a separate `SHEESH_DATA_DIR`, and run `python -m uvicorn app.main:app --host 127.0.0.1 --port 7310`.
 - Install `httpx` for tests, then run `python -m unittest discover -s tests -v` and `node --check app/static/studio.js && node --check app/static/workflows.js`. Run `node --test tests/test_workflows_ui.cjs` for the focused workflow card checks. The optional browser smoke script needs Playwright and Chromium.

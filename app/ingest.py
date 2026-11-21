@@ -26,6 +26,13 @@ TERMINAL = {"completed", "stopped", "failed"}
 LOCK = threading.RLock()
 ACTIVE = {}
 SEGMENT_SECONDS = 60
+# Prefer capped renditions, then accept another HLS size; the segmenter
+# still caps the editable output. Every branch requires picture and sound.
+LIVE_FORMAT = (
+    "b[protocol*=m3u8][height<=720]/"
+    "bv[protocol*=m3u8][height<=720]+ba[protocol*=m3u8]/"
+    "b[protocol*=m3u8]/bv[protocol*=m3u8]+ba[protocol*=m3u8]"
+)
 submit_live_analysis = None
 
 
@@ -92,7 +99,9 @@ def downloader(root, job, folder):
                  "-f", "bv[ext=mp4][vcodec^=avc1]+ba[ext=m4a]/b[ext=mp4][vcodec^=avc1]/bv+ba/b",
                  "--merge-output-format", "mp4/mkv", "-o", str(folder / "video.%(ext)s")]
     else:
-        base += ["--match-filter", "is_live", "-f", "b[protocol*=m3u8][height<=720]", "-o", "-"]
+        base += ["--match-filter", "is_live", "-f", LIVE_FORMAT, "-S", "res:720",
+                 "--downloader", "ffmpeg", "--downloader-args", "ffmpeg_o:-f mpegts",
+                 "-o", "-"]
     return [*base, "--", job["url"]]
 
 
@@ -131,7 +140,7 @@ def segmenter(folder, seconds=SEGMENT_SECONDS):
     return ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
             "-protocol_whitelist", "pipe", "-i", "pipe:0", "-map", "0:v:0",
             "-map", "0:a:0?", "-c:v", "libx264", "-threads", "2", "-preset", "ultrafast", "-crf", "22",
-            "-pix_fmt", "yuv420p", "-vf", "fps=30,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-pix_fmt", "yuv420p", "-vf", "fps=30,scale=w=min(1280\\,iw):h=min(720\\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2",
             "-force_key_frames", f"expr:gte(t,n_forced*{seconds})",
             "-c:a", "aac", "-f", "segment", "-segment_time", str(seconds),
             "-reset_timestamps", "1", "-segment_list_type", "csv", "-segment_list",
@@ -298,6 +307,16 @@ def run(root, job, stop):
                         publish_live(root, job, folder, offset)
                     if enc_code:
                         code = enc_code
+                    if code and not job["outputs"] and not stop.is_set():
+                        try:
+                            with (folder / "ingest.log").open("rb") as detail:
+                                detail.seek(max(0, os.fstat(detail.fileno()).st_size - 16384))
+                                no_format = b"requested format is not available" in detail.read().lower()
+                        except OSError:
+                            no_format = False
+                        if no_format:
+                            message = ("YouTube did not expose a compatible public live HLS stream with video and audio. "
+                                       "Try another active stream, or import a local MP4.")
     except FileNotFoundError:
         message = "Ingest requires yt-dlp/Deno and FFmpeg in the local installation."
     except (OSError, subprocess.SubprocessError):

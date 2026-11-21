@@ -1,5 +1,7 @@
 """Ingest contract tests; no network access or YouTube calls."""
 import os
+import json
+from importlib.util import find_spec
 from pathlib import Path
 import shutil
 import subprocess
@@ -31,6 +33,32 @@ class IngestTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ingest.canonical_youtube(url)
 
+    @unittest.skipUnless(find_spec("yt_dlp"), "Requires installed yt-dlp")
+    def test_real_ytdlp_selector_offline(self):
+        from yt_dlp import YoutubeDL, parse_options
+        from yt_dlp.downloader import get_suitable_downloader
+
+        def fmt(id, height, video, audio):
+            return dict(format_id=id, height=height, vcodec=video, acodec=audio,
+                        protocol="m3u8_native", ext="mp4" if video != "none" else "m4a",
+                        url="https://example.invalid/" + id)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = ingest.downloader(root, {"kind": "live", "url": "https://www.youtube.com/watch?v=00000000000"}, root)
+            opts = parse_options(args[1:]).ydl_opts
+            small = fmt("360", 360, "h264", "aac")
+            large = fmt("1080", 1080, "h264", "aac")
+            split = fmt("1080-video", 1080, "h264", "none")
+            audio = fmt("audio", None, "none", "aac")
+            for formats, expected in (([small, large], "360"), ([large], "1080"),
+                                      ([split, audio], "1080-video+audio")):
+                with self.subTest(expected=expected), YoutubeDL(opts) as ydl:
+                    fake = dict(id="00000000000", title="synthetic", formats=formats, is_live=True)
+                    selected = ydl.process_video_result(fake, download=False)
+                    self.assertEqual(selected["format_id"], expected)
+                    self.assertEqual(get_suitable_downloader(selected, opts, to_stdout=True).__name__, "FFmpegFD")
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "Requires FFmpeg")
     def test_vod_and_live(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"SHEESH_DATA_DIR": tmp}):
@@ -39,7 +67,10 @@ class IngestTests(unittest.TestCase):
             subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
                             "testsrc2=s=96x64:r=10", "-t", "4", "-c:v", "libx264",
                             "-g", "10", str(clip)], check=True)
-            subprocess.run(["ffmpeg", "-v", "error", "-i", str(clip), "-c", "copy",
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                            "testsrc2=s=1366x768:r=10", "-f", "lavfi", "-i",
+                            "sine=frequency=440", "-t", "4", "-c:v", "libx264", "-preset",
+                            "ultrafast", "-threads", "2", "-c:a", "aac",
                             "-f", "mpegts", str(stream)], check=True)
             alternate = root / "alternate.webm"
             subprocess.run(["ffmpeg", "-v", "error", "-i", str(clip),
@@ -57,9 +88,11 @@ class IngestTests(unittest.TestCase):
                     selected = alternate if job["url"].endswith("11111111111") else clip
                     return [sys.executable, "-c", "import shutil,sys;shutil.copyfile(sys.argv[1],sys.argv[2])",
                             str(selected), str(folder / ("video" + selected.suffix))]
+                if job["url"].endswith("22222222222"):
+                    return [sys.executable, "-c", "import sys;sys.stderr.write('ERROR: Requested format is not available');sys.exit(1)"]
                 return [sys.executable, "-c",
-                        "import pathlib,sys,time;sys.stdout.buffer.write(pathlib.Path(sys.argv[1]).read_bytes());sys.stdout.buffer.flush();time.sleep(30)",
-                        str(stream)]
+                        "import pathlib,sys,time;sys.stdout.buffer.write(pathlib.Path(sys.argv[1]).read_bytes());sys.stdout.buffer.flush();pathlib.Path(sys.argv[2]).touch();time.sleep(30)",
+                        str(stream), str(folder / "sent")]
 
             def wait_for(id, predicate):
                 until = time.monotonic() + 15
@@ -91,13 +124,27 @@ class IngestTests(unittest.TestCase):
                 self.assertEqual(r.status_code, 202)
                 id = r.json()["id"]
                 self.assertEqual(client.post("/api/ingest", json={"url": url, "kind": "vod"}).status_code, 409)
-                wait_for(id, lambda j: j["status"] == "running")
-                time.sleep(.8)
+                wait_for(id, lambda j: (root / "live-chunks" / id / "sent").is_file())
                 self.assertEqual(client.post(f"/api/ingest/{id}/stop").status_code, 200)
                 job = wait_for(id, lambda j: j["status"] in ingest.TERMINAL)
                 self.assertEqual(job["status"], "stopped")
                 self.assertGreaterEqual(len(job["outputs"]), 3)
                 self.assertEqual(len(client.get("/api/ingest").json()), 3)
                 for part in job["outputs"]:
-                    self.assertTrue((root / "live-chunks" / id / part["name"]).exists())
+                    chunk = root / "live-chunks" / id / part["name"]
+                    self.assertTrue(chunk.exists())
+                    streams = json.loads(subprocess.check_output(
+                        ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(chunk)]
+                    ))["streams"]
+                    video = next(x for x in streams if x["codec_type"] == "video")
+                    audio = next(x for x in streams if x["codec_type"] == "audio")
+                    self.assertLessEqual(video["width"], 1280)
+                    self.assertLessEqual(video["height"], 720)
+                    self.assertEqual(video["r_frame_rate"], "30/1")
+                    self.assertEqual(audio["codec_name"], "aac")
                     self.assertTrue((root / "originals" / (part["source_id"] + ".json")).exists())
+                failed = client.post("/api/ingest", json={"url": "https://youtu.be/22222222222", "kind": "live"})
+                failure = wait_for(failed.json()["id"], lambda j: j["status"] in ingest.TERMINAL)
+                self.assertEqual(failure["status"], "failed")
+                self.assertIn("with video and audio", failure["message"])
+                self.assertEqual(failure["outputs"], [])
