@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from . import media
+from . import ingest, media
 
 app = FastAPI(title="SheeshhClipper")
 # Defense in depth against DNS rebinding for the loopback-scoped service.
@@ -176,5 +176,6 @@ def artifact_file(id: str):
     return FileResponse(root / folder / (id + ".mp4"), media_type="video/mp4",
                         filename=item["name"], content_disposition_type="inline")
 
+app.include_router(ingest.router)
 app.mount("/static", StaticFiles(directory=STATIC, check_dir=False), name="static")
 app.mount("/", StaticFiles(directory=STATIC, html=True, check_dir=False), name="frontend")

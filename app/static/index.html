@@ -7,11 +7,22 @@
 <title>SheeshhClipper | Local Studio</title>
 <link rel="stylesheet" href="/static/studio.css">
 <script defer src="/static/studio.js"></script>
+<script defer src="/static/ingest.js"></script>
 </head>
 <body>
 <header class="site-header"><div class="identity"><span class="logo" aria-hidden="true">✂</span><div><strong>SheeshhClipper</strong><small>LOCAL STUDIO</small></div></div><span class="status"><i></i> Local workspace</span></header>
 <main>
 <section class="intro"><div class="eyebrow">VIDEO WORKSPACE / 01</div><h1>Cut the good parts.</h1><p>Trim your footage, frame the action, and export a clip. Originals stay untouched.</p></section>
+<section class="surface ingest" aria-labelledby="ingest-title">
+<div class="panel-top"><div><div class="eyebrow">SOURCE LIBRARY</div><h2 id="ingest-title">Bring in a video</h2></div></div>
+<form id="ingest-form" class="ingest-form">
+<label>Capture type<select id="ingest-kind"><option value="vod">YouTube VOD</option><option value="live">Live capture</option></select></label>
+<label>Video address<input id="ingest-url" class="number" type="url" required placeholder="https://www.youtube.com/watch?v=…"></label>
+<button type="submit" id="ingest-submit" class="lite">Download VOD</button>
+</form>
+<p class="hint ingest-hint" id="ingest-hint">Download a video you own or have permission to use. The original stays on this machine.</p>
+<div id="ingest-jobs" class="stack"></div>
+</section>
 <div class="grid">
 <section class="surface stage" aria-labelledby="preview-title">
 <div class="panel-top"><div><div class="eyebrow">01 / SOURCE</div><h2 id="preview-title">Preview</h2></div><div class="source-controls"><label class="sr" for="source">Source video</label><select id="source"><option value="">No sources yet</option></select><button id="import-button" type="button" class="lite">Import video</button><input id="import-file" type="file" accept="video/mp4,.mp4" hidden></div></div>

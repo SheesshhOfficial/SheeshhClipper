@@ -34,3 +34,7 @@ Use a temporary `SHEESH_DATA_DIR` for test jobs rather than the real library. Do
 ## Smoke test
 
 Install the optional test dependency `httpx`, then run `python -m unittest discover -s tests -v`. The integration test uses synthetic video and a temporary data directory. An optional browser smoke script uses Playwright and its installed Chromium (or set `SHEESH_CHROMIUM` to an executable).
+
+## Public YouTube ingest
+
+Use **Bring in a video** for public YouTube videos or live streams you own or have permission to use. No account, cookies or API key are used. VOD originals remain under `data/downloads`; when needed, an H.264/AAC editing copy is created beside the original. Live currently requires a public, multiplexed HLS stream at 720p or lower. Press **Stop** to finish the capture. Completed MP4 chunks are saved under `data/live-chunks` and appear in Sources. Hard shutdown may leave the active chunk incomplete; finalized chunks are retained. No automatic retention limit. Docker includes Deno and local yt-dlp EJS. Live-provider compatibility was not verified against a real YouTube stream in this checkpoint.

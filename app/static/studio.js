@@ -71,7 +71,7 @@ function loadSource(id) {
   $('empty').querySelector('p').textContent='The browser is opening your original file.';
   updateControls();
 }
-async function sources(selectId) {
+async function sources(selectId,preserve=false) {
   state.sources=await api('/api/sources');
   $('source').replaceChildren();
   if(!state.sources.length){
@@ -80,7 +80,8 @@ async function sources(selectId) {
   }
   for(const x of state.sources) $('source').append(new Option(x.name,String(x.id)));
   const desired = selectId ?? state.source?.id ?? state.sources[0]?.id;
-  if (desired) loadSource(desired);
+  if (desired && !(preserve && String(desired)===String(state.source?.id))) loadSource(desired);
+  else if(desired) $('source').value=String(desired);
   updateControls();
 }
 function safeArtifact(p) {
