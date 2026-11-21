@@ -309,7 +309,9 @@ function paint() {
       ctx.fillStyle='#fff';ctx.fillText(txt,w/2,y,max);
     }
   }
+  if($('preview-guides').checked)drawPreviewGuides(ctx,w,h);
 }
+$('preview-guides').addEventListener('change',paint);
 function ticking() {
   if(state.playEdit&&!video.paused) {
     const start=value('start'),end=value('end'), cuts=readCuts(start,end),t=video.currentTime;

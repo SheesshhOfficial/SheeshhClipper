@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/static/studio.css">
 <script defer src="/static/workspace.js"></script>
 <script defer src="/static/projects.js"></script>
+<script defer src="/static/preview-guides.js"></script>
 <script defer src="/static/studio.js"></script>
 <script defer src="/static/editor-shortcuts.js"></script>
 <script defer src="/static/workflows.js"></script>
@@ -102,6 +103,7 @@
 <button id="play-edit" type="button" class="lite" disabled>Play trim</button>
 </div>
 <details class="shortcut-help"><summary>Keyboard shortcuts</summary><p>Focus the preview, then press <kbd>Space</kbd> to play or pause, <kbd>[</kbd> to set the start, or <kbd>]</kbd> to set the end at the playhead. Shortcuts do not run while you type or use an input control.</p></details>
+<div class="preview-options"><label><input id="preview-guides" type="checkbox" aria-describedby="guide-hint"> Show framing guides</label><span id="guide-hint">Preview only. Actual platform overlays vary.</span></div>
 <div class="panel-bottom"><div id="source-meta" class="muted">Add an MP4 for the most reliable browser preview.</div><button id="mark-face" type="button" class="lite" disabled>Draw facecam region</button></div>
 </section>
 
