@@ -56,6 +56,53 @@ def canonical_youtube(value: str) -> str:
     return f"https://www.youtube.com/watch?v={candidate}"
 
 
+def youtube_video_id(url: str) -> str:
+    """Use the same validated, case-sensitive identity as the downloader."""
+    return canonical_youtube(url).partition("?v=")[2]
+
+
+def output_source_id(job_id: str, filename: str) -> str:
+    return uuid5(NAMESPACE_URL, f"sheeshhclipper/{job_id}/{filename}").hex
+
+
+def legacy_source_video_ids(root: Path, source_ids: set[str]) -> dict[str, str]:
+    """Link older source records to app-owned ingest metadata without rewriting it."""
+    if not source_ids:
+        return {}
+    found = {}
+    conflicts = set()
+    for path in (root / "cache" / "ingest").glob("*.json"):
+        if not JOB_ID.fullmatch(path.stem):
+            continue
+        try:
+            job = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(job, dict) or job.get("id") != path.stem or job.get("kind") not in ("vod", "live"):
+                continue
+            url = job.get("url")
+            if not isinstance(url, str):
+                continue
+            video_id = youtube_video_id(url)
+        except (OSError, ValueError):
+            continue
+        outputs = job.get("outputs")
+        if not isinstance(outputs, list):
+            continue
+        for output in outputs:
+            if not isinstance(output, dict):
+                continue
+            source_id = output.get("source_id")
+            if source_id is None:
+                filename = output.get("name")
+                if isinstance(filename, str) and (CHUNK.fullmatch(filename) or
+                                                   filename in {"video.mp4", "editing-proxy.mp4"}):
+                    source_id = output_source_id(path.stem, filename)
+            if isinstance(source_id, str) and source_id in source_ids:
+                if source_id in found and found[source_id] != video_id:
+                    conflicts.add(source_id)
+                found[source_id] = video_id
+    return {source_id: video_id for source_id, video_id in found.items() if source_id not in conflicts}
+
+
 class Ingest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: str
@@ -204,8 +251,9 @@ def publish(root, job, path):
         info = media.probe(path)
     except (ValueError, KeyError, StopIteration, subprocess.SubprocessError):
         return
-    name = f"YouTube-{job['url'].split('=')[-1]}-{job['id'][:8]}-{path.name}"
-    id = uuid5(NAMESPACE_URL, f"sheeshhclipper/{job['id']}/{path.name}").hex
+    video_id = youtube_video_id(job["url"])
+    name = f"YouTube-{video_id}-{job['id'][:8]}-{path.name}"
+    id = output_source_id(job["id"], path.name)
     target = root / "originals" / (id + ".mp4")
     if not target.exists():
         temp = target.with_suffix(".ingest")
@@ -218,7 +266,7 @@ def publish(root, job, path):
         finally:
             temp.unlink(missing_ok=True)
     media.write_record(target.with_suffix(".json"), {"id": id, "name": name,
-                      "url": f"/api/sources/{id}/media", **info})
+                      "url": f"/api/sources/{id}/media", "youtube_video_id": video_id, **info})
     output = {"name": path.name, "source_id": id, "url": f"/api/ingest/{job['id']}/files/{path.name}"}
     if job.get("auto_analyze"):
         output.update(request_auto_analysis(id, live=job["kind"] == "live"))
@@ -361,8 +409,8 @@ def start(request: Ingest):
         raise HTTPException(422, str(exc)) from exc
     root = media.root()
     id = media.media_id()
-    job = {"id": id, "url": url, "kind": request.kind, "auto_analyze": request.auto_analyze, "status": "queued",
-           "message": "Queued", "outputs": []}
+    job = {"id": id, "url": url, "youtube_video_id": youtube_video_id(url), "kind": request.kind,
+           "auto_analyze": request.auto_analyze, "status": "queued", "message": "Queued", "outputs": []}
     stop = threading.Event()
     with LOCK:
         if any(key[0] == root for key in ACTIVE):

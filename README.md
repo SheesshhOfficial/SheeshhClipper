@@ -12,7 +12,7 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 
 ## How to make a clip
 
-The dark workspace separates **Sources**, **Highlights**, **Editor**, and **Saved clips**. The source picker stays available across all four views. Changing views does not reset your trim or framing. Saved clips are grouped by their original source, including older drafts and exports that have a saved edit. Existing media files stay where they are. The layout takes inspiration from [SupoClip’s app guide](https://github.com/FujiwaraChoki/supoclip/blob/main/docs/app-guide.md), not its code.
+The dark workspace separates **Sources**, **Highlights**, **Editor**, and **Saved clips**. The source picker stays available across all four views. Changing views does not reset your trim or framing. Saved clips are grouped by project. Re-imports and live chunks for the same YouTube video share a project, and each local upload keeps its own group. Older clips are grouped from saved metadata when available. Existing media files stay where they are. The layout takes inspiration from [SupoClip’s app guide](https://github.com/FujiwaraChoki/supoclip/blob/main/docs/app-guide.md), not its code.
 
 | Step | What to do |
 | --- | --- |

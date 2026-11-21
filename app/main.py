@@ -140,8 +140,17 @@ def listed(folder: Path) -> list[dict]:
     return [json.loads(p.read_text(encoding="utf-8")) for p in
             sorted(folder.glob("*.json"), key=lambda path: path.stat().st_mtime_ns, reverse=True)]
 
-def source_public(source: dict) -> dict:
-    return {key: source[key] for key in ("id", "name", "duration", "width", "height", "url")}
+def stored_video_id(source: dict) -> str | None:
+    video_id = source.get("youtube_video_id")
+    return video_id if isinstance(video_id, str) and ingest.VIDEO_ID.fullmatch(video_id) else None
+
+def source_public(source: dict, legacy_video_id: str | None = None) -> dict:
+    result = {key: source[key] for key in ("id", "name", "duration", "width", "height", "url")}
+    video_id = stored_video_id(source) or legacy_video_id
+    if video_id:
+        result["youtube_video_id"] = video_id
+    result["project_key"] = f"youtube:{video_id}" if video_id else f"local:{source['id']}"
+    return result
 
 def artifact_public(artifact: dict) -> dict:
     fields = ("id", "name", "url", "kind", "width", "height", "duration", "bytes")
@@ -190,7 +199,7 @@ def upload(file: UploadFile = File(...), auto_analyze: bool = Form(False)):
                 out.write(chunk)
         info = media.probe(temporary)
         temporary.replace(target)
-        data = {"id": id, "name": name, "url": f"/api/sources/{id}/media", **info}
+        data = {"id": id, "name": name, "url": f"/api/sources/{id}/media", "source_kind": "local", **info}
         media.write_record(folder / (id + ".json"), data)
         result = source_public(data)
         if auto_analyze:
@@ -206,7 +215,13 @@ def upload(file: UploadFile = File(...), auto_analyze: bool = Form(False)):
 
 @app.get("/api/sources")
 def sources():
-    return [source_public(item) for item in listed(media.root() / "originals")]
+    root = media.root()
+    items = listed(root / "originals")
+    legacy = ingest.legacy_source_video_ids(
+        root, {source["id"] for source in items if
+               source.get("source_kind") != "local" and stored_video_id(source) is None},
+    )
+    return [source_public(source, legacy.get(source["id"])) for source in items]
 
 @app.get("/api/sources/{id}/media")
 def source_file(id: str):

@@ -153,7 +153,17 @@ async function sources(selectId, preserve=false) {
     state.source=null;
     $('source').append(new Option('No sources yet',''));
   }
-  for(const x of state.sources) $('source').append(new Option(x.name,String(x.id)));
+  const projects=sourceProjects(state.sources);
+  const grouped=new Map();
+  for(const x of state.sources){
+    const project=projects.get(x.id), option=new Option(x.name,String(x.id));
+    if(!x.youtube_video_id){$('source').append(option);continue;}
+    if(!grouped.has(project.key)){
+      const group=document.createElement('optgroup');group.label=project.label;
+      grouped.set(project.key,group);$('source').append(group);
+    }
+    grouped.get(project.key).append(option);
+  }
   const desired = selectId ?? state.source?.id ?? state.sources[0]?.id;
   if (desired) {
     if(preserve && state.source && String(state.source.id)===String(desired))$('source').value=String(desired);
@@ -173,8 +183,8 @@ function readableSize(bytes) {
 function visibleGallery() {
   const filter=$('artifact-filter')?.value || 'all';
   const selected=artifactItems.filter(item=>filter==='all'||item.kind===filter);
-  const sourceNames=new Map(state.sources.map(item=>[item.id,item.name]));
-  const key=JSON.stringify([filter,selected,[...sourceNames]]);
+  const projects=sourceProjects(state.sources);
+  const key=JSON.stringify([filter,selected,[...projects]]);
   if(key===lastGalleryView)return;
   lastGalleryView=key;
   const host=$('artifacts');host.replaceChildren();
@@ -185,16 +195,9 @@ function visibleGallery() {
     p.textContent=filter==='draft'?'No drafts yet. Analyze a source or save a draft from the editor.':filter==='export'?'No exports yet. Export a finished clip from the editor.':'Your drafts and exports will appear here.';
     host.append(p);return;
   }
-  const groups=new Map();
-  for(const item of selected) {
-    const groupKey=item.source_id||'';
-    if(!groups.has(groupKey)) groups.set(groupKey,[]);
-    groups.get(groupKey).push(item);
-  }
-  for(const [sourceId, items] of groups) {
+  for(const {label, items} of collectProjects(selected,projects)) {
     const group=document.createElement('section');group.className='artifact-group';
-    const title=document.createElement('h3');
-    title.textContent=sourceNames.get(sourceId)||(sourceId?'Unavailable source · '+sourceId.slice(0,8):'Unlinked clips');
+    const title=document.createElement('h3');title.textContent=label;
     const summary=document.createElement('p');summary.className='panel-note';
     summary.textContent=items.length+' clip'+(items.length===1?'':'s');
     const tiles=document.createElement('div');tiles.className='artifact-grid';

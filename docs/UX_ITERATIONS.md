@@ -20,3 +20,5 @@ The reference is [SupoClip’s app guide](https://github.com/FujiwaraChoki/supoc
 ## Feature iterations
 
 Each subsequent release will record its scope and verification here.
+
+1. **Source projects.** Canonical YouTube IDs group repeat imports and completed live chunks. Local file uploads, even with the same name, stay separate. Older ingest records are recognized when available; no media moves or migrations. Verified with synthetic media, equivalent links, distinct video IDs, and focused library grouping tests.
