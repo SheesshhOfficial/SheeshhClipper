@@ -370,8 +370,13 @@ $('start-here').addEventListener('click',()=>{$('start').value=String(Math.min(v
 $('end-here').addEventListener('click',()=>{$('end').value=String(Math.min(Number(video.currentTime.toFixed(2)),state.source.duration));updateControls();});
 $('source').addEventListener('change',()=>loadSource($('source').value));
 $('import-button').addEventListener('click',()=>$('import-file').click());
-$('import-file').addEventListener('change',async()=>{
-  const f=$('import-file').files[0];$('import-file').value='';if(!f||state.busy)return;
+$('import-file').addEventListener('change',()=>{
+  const file=$('import-file').files[0];$('import-file').value='';
+  if(file)importLocalFile(file);
+});
+attachLocalFileDrop($('file-drop'),importLocalFile,text=>announce(text,true));
+async function importLocalFile(f){
+  if(state.busy){announce('Wait for the current editor action to finish before importing.');return;}
   state.busy=true;updateControls();announce('Importing '+f.name+'…',false,true);
   const body=new FormData();body.append('file',f);
   if($('auto-analyze').checked)body.append('auto_analyze','true');
@@ -380,7 +385,7 @@ $('import-file').addEventListener('change',async()=>{
     announce(newSource.analysis_id?'Source imported. Local highlight analysis queued.':newSource.analysis_note?'Source imported. '+newSource.analysis_note:'Source imported.');
   }
   catch(e){announce(e.message,true);} finally{state.busy=false;updateControls();}
-});
+}
 async function render(kind){
   if(state.busy||!state.source)return;
   const a=value('start'),b=value('end'),face=faceRegion();

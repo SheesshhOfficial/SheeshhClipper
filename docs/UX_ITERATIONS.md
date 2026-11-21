@@ -25,3 +25,8 @@ Each subsequent release will record its scope and verification here.
 2. **Saved clips search.** Search project names, YouTube IDs, or filenames. Search combines with the Drafts / Exports filter and reports the filtered count. Verified mixed-case and multiword matching plus type-filter composition in Node.
 3. **Editor shortcuts.** The focused preview accepts Space for play/pause and the bracket keys for trim points. Input controls, intentionally modified keys, and hidden views retain normal behavior. Verified enabled-action routing and keyboard exclusion cases.
 4. **Framing guides.** An optional dashed outline helps place facecams and text away from edges and leaves extra right/bottom space in vertical clips. Guides stay off during facecam drawing and never render into exports. Verified all three aspect ratios and canvas state restoration.
+5. **Drop a local MP4.** Dropping one file onto the Local file card uses the same import and optional local highlight path as the file picker. URL drops are ignored and unsupported or multiple files get a clear message. Verified file validation, proper drag state, and rejection of non-file drops.
+
+## Release verification
+
+Cloud API/media and focused JavaScript suites cover setup, clip restore/export, grouping, navigation, search, shortcuts, preview guide geometry, and the drop handler. No visual or Windows Docker check is claimed.

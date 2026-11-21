@@ -9,6 +9,7 @@
 <script defer src="/static/workspace.js"></script>
 <script defer src="/static/projects.js"></script>
 <script defer src="/static/preview-guides.js"></script>
+<script defer src="/static/file-drop.js"></script>
 <script defer src="/static/studio.js"></script>
 <script defer src="/static/editor-shortcuts.js"></script>
 <script defer src="/static/workflows.js"></script>
@@ -48,9 +49,9 @@
     <p id="source-auto-hint" class="hint">Set before importing. Prepares drafts for review without exporting. MP4 and VOD use audio and motion; live chunks use audio and skip analysis if the worker is busy.</p>
   </div>
   <div class="import-grid">
-    <section class="surface import-card" aria-labelledby="file-title">
+    <section id="file-drop" class="surface import-card" aria-labelledby="file-title">
       <span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m-4 4 4-4 4 4M5 15v5h14v-5"/></svg></span>
-      <h2 id="file-title">Local file</h2><p class="panel-note">Choose an MP4 from this computer. Your original stays untouched.</p>
+      <h2 id="file-title">Local file</h2><p class="panel-note">Drop an MP4 here or choose one from this computer. Your original stays untouched.</p>
       <div class="source-upload"><button id="import-button" type="button" class="primary">Import video</button><input id="import-file" type="file" accept="video/mp4,.mp4" hidden></div>
     </section>
     <section class="surface import-card" aria-labelledby="youtube-title">
