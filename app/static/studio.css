@@ -180,6 +180,7 @@ select, .number { width: 100%; min-width: 0; }
 #edit-warning:empty { display: none; }
 
 .gallery-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gallery-toolbar input { width: clamp(140px, 19vw, 240px); }
 .gallery-toolbar select { width: auto; min-width: 100px; }
 .artifact-count { font-size: .77rem; margin-top: 4px; }
 .artifact-count:empty { display: none; }

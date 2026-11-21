@@ -24,3 +24,14 @@ function collectProjects(items, bySource) {
   }
   return [...groups.values()];
 }
+
+function findProjectClips(items, bySource, kind, query) {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return items.filter(item => {
+    if (kind !== 'all' && item.kind !== kind) return false;
+    if (!terms.length) return true;
+    const label = bySource.get(item.source_id)?.label || '';
+    const text = (label + ' ' + item.name).toLowerCase();
+    return terms.every(term => text.includes(term));
+  });
+}

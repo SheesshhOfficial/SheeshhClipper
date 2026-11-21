@@ -18,3 +18,16 @@ test('saved clips use the same project for multiple YouTube imports or chunks, n
     ['youtube:test',['d','e']],['local:l1',['f']],['local:l2',['g']],['unlinked',['old']]
   ]);
 });
+
+test('library search matches project and clip text and combines with the kind filter', ()=>{
+  const actual = vm.runInContext(`JSON.stringify(findProjectClips([
+    {id:'a',name:'First render.mp4',source_id:'vod',kind:'draft'},
+    {id:'b',name:'First render.mp4',source_id:'vod',kind:'export'},
+    {id:'c',name:'First render.mp4',source_id:'local',kind:'draft'},
+    {id:'d',name:'Something else.mp4',source_id:'vod',kind:'draft'}
+  ], sourceProjects([
+    {id:'vod',name:'desktop',project_key:'youtube:mix',youtube_video_id:'AbC'},
+    {id:'local',name:'capture.mp4'}
+  ]), 'draft', '  ABC   FIRST '))`,context);
+  assert.deepEqual(JSON.parse(actual).map(item=>item.id),['a']);
+});

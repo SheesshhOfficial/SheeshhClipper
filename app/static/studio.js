@@ -182,20 +182,22 @@ function readableSize(bytes) {
 }
 function visibleGallery() {
   const filter=$('artifact-filter')?.value || 'all';
-  const selected=artifactItems.filter(item=>filter==='all'||item.kind===filter);
+  const query=$('artifact-search').value.trim();
   const projects=sourceProjects(state.sources);
-  const key=JSON.stringify([filter,selected,[...projects]]);
+  const selected=findProjectClips(artifactItems,projects,filter,query);
+  const groups=collectProjects(selected,projects);
+  const key=JSON.stringify([filter,query,artifactItems.length,groups]);
   if(key===lastGalleryView)return;
   lastGalleryView=key;
   const host=$('artifacts');host.replaceChildren();
   const count=$('artifact-count');
-  if(count)count.textContent=filter==='all'?artifactItems.length+' saved':selected.length+' of '+artifactItems.length+' saved';
+  if(count)count.textContent=filter==='all'&&!query?artifactItems.length+' saved':selected.length+' of '+artifactItems.length+' saved';
   if(!selected.length){
     const p=document.createElement('p');p.className='artifact-empty muted';
-    p.textContent=filter==='draft'?'No drafts yet. Analyze a source or save a draft from the editor.':filter==='export'?'No exports yet. Export a finished clip from the editor.':'Your drafts and exports will appear here.';
+    p.textContent=query?'No saved clips match your search. Try a project name or clear the search.':filter==='draft'?'No drafts yet. Analyze a source or save a draft from the editor.':filter==='export'?'No exports yet. Export a finished clip from the editor.':'Your drafts and exports will appear here.';
     host.append(p);return;
   }
-  for(const {label, items} of collectProjects(selected,projects)) {
+  for(const {label, items} of groups) {
     const group=document.createElement('section');group.className='artifact-group';
     const title=document.createElement('h3');title.textContent=label;
     const summary=document.createElement('p');summary.className='panel-note';
@@ -403,6 +405,7 @@ async function render(kind){
 }
 $('draft').addEventListener('click',()=>render('draft'));$('export').addEventListener('click',()=>render('export'));
 $('artifact-filter')?.addEventListener('change',visibleGallery);
+$('artifact-search').addEventListener('input',visibleGallery);
 $('export-profile').addEventListener('change',updateControls);
 $('refresh').addEventListener('click',()=>artifacts().catch(e=>announce(e.message,true)));
 Promise.allSettled([sources(),artifacts()]).then(results=>{for(const r of results)if(r.status==='rejected')announce(r.reason.message,true);});
