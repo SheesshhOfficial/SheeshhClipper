@@ -75,6 +75,23 @@ class AnalysisTest(unittest.TestCase):
         self.assertEqual([job["id"]], [item["id"] for item in self.client.get(
             f"/api/analysis?source_id={self.source_id}").json()])
 
+    def test_whisper_transcript_only_skips_scoring_and_drafts(self):
+        forced = {"whisper": {"available": True}}
+        with patch.object(analysis, "providers", return_value=forced), patch.object(
+            analysis, "whisper_captions", return_value=[{"start": 1, "end": 3, "text": "One important moment"}]
+        ) as whisper, patch.object(analysis, "audio_activity") as score:
+            request = {"source_id": self.source_id, "provider": "whisper", "transcript_only": True}
+            self.assertEqual(400, self.client.post("/api/analysis", json={**request, "provider": "assemblyai"}).status_code)
+            response = self.client.post("/api/analysis", json=request)
+            self.assertEqual(202, response.status_code, response.text)
+            job = self.ready(response.json()["id"])
+            self.assertEqual("completed", job["status"], job)
+            self.assertEqual("One important moment", job["captions"][0]["text"])
+            self.assertEqual([], job["suggestions"])
+            self.assertEqual([], self.drafts)
+            score.assert_not_called()
+            whisper.assert_called_once()
+
     def test_cloud_consent_busy_and_captions_scope(self):
         with patch.dict(os.environ, ASSEMBLYAI_API_KEY="not-a-real-key"):
             self.assertTrue(self.client.get("/api/analysis/providers").json()["assemblyai"]["available"])

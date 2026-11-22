@@ -31,7 +31,7 @@ function findProjectClips(items, bySource, kind, query) {
     if (kind !== 'all' && item.kind !== kind) return false;
     if (!terms.length) return true;
     const label = bySource.get(item.source_id)?.label || '';
-    const text = (label + ' ' + item.name).toLowerCase();
+    const text = (label + ' ' + (item.clip_title||'') + ' ' + item.name).toLowerCase();
     return terms.every(term => text.includes(term));
   });
 }

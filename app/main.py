@@ -14,6 +14,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from . import media
+from .ai_clipper import make_router as make_ai_clipper_router
 from .analysis_engine import captions_for, make_router as make_analysis_router
 from . import ingest
 
@@ -88,9 +89,13 @@ class Render(Model):
     layout_changes: list[LayoutChange] = Field(default_factory=list)
     captions_override: list[Caption] | None = None
     captions_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    caption_style: Literal["clean", "bold", "minimal"] = "clean"
+    clip_title: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def valid_edit(self):
+        if self.clip_title is not None:
+            self.clip_title = self.clip_title.strip() or None
         if self.end <= self.start:
             raise ValueError("End must be later than start")
         if self.layout in ("split", "pip") and self.facecam is None:
@@ -153,7 +158,7 @@ def source_public(source: dict, legacy_video_id: str | None = None) -> dict:
     return result
 
 def artifact_public(artifact: dict) -> dict:
-    fields = ("id", "name", "url", "kind", "width", "height", "duration", "bytes")
+    fields = ("id", "name", "url", "kind", "width", "height", "duration", "bytes", "clip_title")
     result = {key: artifact[key] for key in fields if key in artifact}
     edit = artifact.get("edit")
     if isinstance(edit, dict) and isinstance(source_id := edit.get("source_id"), str) and ID.fullmatch(source_id):
@@ -257,6 +262,8 @@ def store_render(request: Render, *, lock: bool = True):
         data = {"id": id, "name": f"{Path(item['name']).stem}-{request.kind}-{id[:8]}.mp4",
                 "url": f"/api/artifacts/{id}/media", "kind": request.kind, "bytes": size,
                 **{key: output[key] for key in ("width", "height", "duration")}}
+        if request.clip_title:
+            data["clip_title"] = request.clip_title
         media.write_record(root / "projects" / (id + ".json"), {**data, "edit": request.model_dump()})
         return data
     except ValueError as exc:
@@ -297,6 +304,7 @@ analysis_router = make_analysis_router(RENDER_LOCK, draft_callback=generate_auto
 ingest.submit_auto_analysis = analysis_router.submit_local_analysis
 app.include_router(ingest.router)
 app.include_router(analysis_router)
+app.include_router(make_ai_clipper_router(RENDER_LOCK))
 
 app.mount("/static", StaticFiles(directory=STATIC, check_dir=False), name="static")
 app.mount("/", StaticFiles(directory=STATIC, html=True, check_dir=False), name="frontend")

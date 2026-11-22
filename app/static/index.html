@@ -10,9 +10,11 @@
 <script defer src="/static/projects.js"></script>
 <script defer src="/static/preview-guides.js"></script>
 <script defer src="/static/file-drop.js"></script>
+<script defer src="/static/editor-settings.js"></script>
 <script defer src="/static/studio.js"></script>
 <script defer src="/static/editor-shortcuts.js"></script>
 <script defer src="/static/workflows.js"></script>
+<script defer src="/static/ai-clipper-ui.js"></script>
 </head>
 <body>
 <a class="skip-link" href="#workspace">Skip to workspace</a>
@@ -32,8 +34,10 @@
   <ol>
     <li><a href="#import-workspace" data-workspace-link><span class="step-number" aria-hidden="true">01</span><span><strong>Sources</strong><small>Import &amp; capture</small></span></a></li>
     <li><a href="#analysis-workspace" data-workspace-link><span class="step-number" aria-hidden="true">02</span><span><strong>Highlights</strong><small>Suggestions &amp; captions</small></span></a></li>
+    <li><a href="#ai-clipper-workspace" data-workspace-link><span class="step-number" aria-hidden="true">AI</span><span><strong>AI Clipper</strong><small>Transcript picks</small></span></a></li>
     <li><a href="#editor-workspace" data-workspace-link><span class="step-number" aria-hidden="true">03</span><span><strong>Editor</strong><small>Trim &amp; frame</small></span></a></li>
     <li><a href="#export-workspace" data-workspace-link><span class="step-number" aria-hidden="true">04</span><span><strong>Saved clips</strong><small>Drafts &amp; exports</small></span></a></li>
+    <li><a href="#settings-workspace" data-workspace-link><span class="step-number" aria-hidden="true">⚙</span><span><strong>Settings</strong><small>Editor defaults</small></span></a></li>
   </ol>
   <p class="nav-footer">Manual export only.<br>No automatic posting.</p>
 </nav>
@@ -86,8 +90,11 @@
 <div class="surface analysis-results"><div class="panel-top"><div><h2>Suggestions and captions</h2><p class="panel-note">Preview a draft or load its trim into the editor.</p></div></div>
 <p id="analysis-status" class="hint ingest-hint" role="status">Select a source to look for highlights. Review suggestions before exporting.</p>
 <div id="suggestions" class="stack"></div>
-<div id="captions" class="caption-panel" hidden></div>
 </div>
+</section>
+<section id="ai-clipper-workspace" class="workspace-pane" aria-labelledby="ai-clipper-title">
+<div class="view-heading"><div class="eyebrow">TRANSCRIPT SCORING</div><h1 id="ai-clipper-title" tabindex="-1">AI Clipper</h1><p>Find moments from what was said. Adjust each proposed title and time range before opening it in the Editor.</p></div>
+<div id="ai-clipper"></div>
 </section>
 <section id="editor-workspace" class="workspace-pane" aria-labelledby="editor-title">
 <div class="view-heading"><div class="eyebrow">03 / EDITOR</div><h1 id="editor-title" tabindex="-1">Make the cut</h1><p>Trim your clip, set the frame, then save a draft or export.</p></div>
@@ -110,13 +117,23 @@
 
 <section class="surface controls" aria-labelledby="edit-title">
 <div class="panel-top"><div><h2 id="edit-title" tabindex="-1">Clip controls</h2><p class="panel-note">Adjust the cut, crop, and facecam.</p></div></div>
+<div class="edit-tabs" id="editor-tabs" role="tablist" aria-label="Clip controls">
+<button id="tab-trim" role="tab" type="button" aria-controls="panel-trim" aria-selected="true">Trim</button>
+<button id="tab-frame" role="tab" type="button" aria-controls="panel-frame" aria-selected="false" tabindex="-1">Frame</button>
+<button id="tab-captions" role="tab" type="button" aria-controls="panel-captions" aria-selected="false" tabindex="-1">Captions</button>
+<button id="tab-export" role="tab" type="button" aria-controls="panel-export" aria-selected="false" tabindex="-1">Export</button>
+</div>
 <form id="edit-form">
+<div id="panel-trim" role="tabpanel" aria-labelledby="tab-trim" class="edit-panel">
+<label class="clip-title">Clip title <input type="text" class="number" maxlength="100" id="clip-title" placeholder="Optional"></label>
 <fieldset><legend>Trim <output id="clip-length">0.00s</output></legend>
 <div class="trim">
 <label>Start (s)<input class="number" id="start" type="number" min="0" step=".01" value="0"></label><button id="start-here" type="button" class="lite" disabled>Set from playhead</button>
 <label>End (s)<input class="number" id="end" type="number" min="0" step=".01" value="0"></label><button id="end-here" type="button" class="lite" disabled>Set from playhead</button>
 </div><details class="inner-cuts"><summary>Remove sections inside the clip</summary><div id="cuts"></div><button id="add-cut" type="button" class="text-button">+ Add removed section</button></details></fieldset>
 
+</div>
+<div id="panel-frame" role="tabpanel" aria-labelledby="tab-frame" class="edit-panel" hidden>
 <fieldset><legend>Frame</legend><div class="two">
 <label>Aspect ratio<select id="aspect"><option value="9:16" selected>9:16 Vertical</option><option value="16:9">16:9 Landscape</option><option value="1:1">1:1 Square</option></select></label>
 <label>Layout<select id="layout"><option value="fit">Fit</option><option value="fill">Fill / crop</option><option value="split">Split / facecam</option><option value="pip">Picture-in-picture</option></select></label>
@@ -146,9 +163,19 @@
 </div>
 <button id="clear-face" type="button" class="text-button">Clear region</button></fieldset>
 
+</div>
+<div id="panel-captions" role="tabpanel" aria-labelledby="tab-captions" class="edit-panel" hidden>
+<label>Caption style<select id="caption-style"><option value="clean">Clean · white</option><option value="bold">Bold · yellow</option><option value="minimal">Minimal · small white</option></select></label>
+<p class="hint" id="caption-placeholder">Load captions from Highlights, then choose whether to burn them in.</p>
+<a class="lite" href="#analysis-workspace" data-workspace-link>Go to Highlights</a>
+<div id="captions" class="caption-panel" hidden></div>
+</div>
+<div id="panel-export" role="tabpanel" aria-labelledby="tab-export" class="edit-panel" hidden>
+<label class="profile">Export resolution<select id="export-profile"><option value="high">1080p · High</option><option value="compact">720p · Compact</option></select></label>
 <p id="export-summary" class="export-summary muted">Choose a source to see export settings.</p>
+<div class="actions"><button id="draft" type="button" class="lite" disabled>Save draft</button><button id="export" type="button" class="primary" disabled>Export clip <span aria-hidden="true">↗</span></button></div>
+</div>
 <p id="edit-warning" class="hint" role="status"></p>
-<div class="actions"><button id="draft" type="button" class="lite" disabled>Save draft</button><label class="profile">Export resolution<select id="export-profile"><option value="high">1080p · High</option><option value="compact">720p · Compact</option></select></label><button id="export" type="button" class="primary" disabled>Export clip <span aria-hidden="true">↗</span></button></div>
 </form></section>
 </div>
 </section>
@@ -159,6 +186,22 @@
 <div class="panel-top"><div><h2>Local library</h2><p id="artifact-count" class="artifact-count muted" aria-live="polite"></p></div><div class="gallery-toolbar"><label class="sr" for="artifact-search">Search saved clips</label><input type="search" id="artifact-search" class="number" placeholder="Search saved clips"><label class="sr" for="artifact-filter">Filter saved clips</label><select id="artifact-filter"><option value="all">All clips</option><option value="draft">Drafts</option><option value="export">Exports</option></select><button id="refresh" type="button" class="lite">Refresh</button></div></div>
 <div id="artifacts" class="artifacts"><p class="muted">No drafts or exports yet.</p></div>
 </div>
+</section>
+<section id="settings-workspace" class="workspace-pane" aria-labelledby="settings-title">
+<div class="view-heading"><div class="eyebrow">PREFERENCES</div><h1 id="settings-title" tabindex="-1">Settings</h1><p>Choose how new edits start. You can still override each option in the Editor.</p></div>
+<section class="surface" aria-labelledby="editor-defaults-title">
+<div class="panel-top"><div><h2 id="editor-defaults-title">Editor defaults</h2><p class="panel-note">Saved in this browser. Does not change existing clips or enable caption burn-in.</p></div></div>
+<form id="defaults-form" class="defaults-form">
+<div class="two">
+<label>Aspect ratio<select id="default-aspect"><option value="9:16">9:16 Vertical</option><option value="16:9">16:9 Landscape</option><option value="1:1">1:1 Square</option></select></label>
+<label>Layout<select id="default-layout"><option value="fit">Fit</option><option value="fill">Fill / crop</option></select></label>
+<label>Caption style<select id="default-caption"><option value="clean">Clean · white</option><option value="bold">Bold · yellow</option><option value="minimal">Minimal · small white</option></select></label>
+<label>Export resolution<select id="default-profile"><option value="high">1080p · High</option><option value="compact">720p · Compact</option></select></label>
+</div>
+<div class="caption-actions"><button class="primary" type="submit">Save defaults</button><button class="lite" id="reset-defaults" type="button">Restore factory defaults</button></div>
+<p id="default-status" class="hint" role="status"></p>
+</form>
+</section>
 </section>
 </div>
 </div>

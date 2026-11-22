@@ -12,7 +12,7 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 
 ## How to make a clip
 
-The dark workspace separates **Sources**, **Highlights**, **Editor**, and **Saved clips**. The source picker stays available across all four views. Changing views does not reset your trim or framing. Saved clips are grouped by project. Re-imports and live chunks for the same YouTube video share a project, and each local upload keeps its own group. Older clips are grouped from saved metadata when available. Existing media files stay where they are. The layout takes inspiration from [SupoClip’s app guide](https://github.com/FujiwaraChoki/supoclip/blob/main/docs/app-guide.md), not its code.
+The dark workspace separates **Sources**, **Highlights**, **AI Clipper**, **Editor**, **Saved clips**, and **Settings**. The source picker stays available across the views. Changing views does not reset your trim or framing. Saved clips are grouped by project. Re-imports and live chunks for the same YouTube video share a project, and each local upload keeps its own group. Older clips are grouped from saved metadata when available. Existing media files stay where they are. The layout takes inspiration from [SupoClip’s app guide](https://github.com/FujiwaraChoki/supoclip/blob/main/docs/app-guide.md), not its code.
 
 | Step | What to do |
 | --- | --- |
@@ -23,6 +23,18 @@ The dark workspace separates **Sources**, **Highlights**, **Editor**, and **Save
 | Export | Keep **1080p High** (same setting as the original editor), or choose **720p Compact** for a smaller file. File size depends on the source and duration. Draft quality is unchanged. Use the Saved clips filter to switch between drafts and exports; new renders show their exact dimensions, duration, and file size. Saved edits restore their controls from the gallery. |
 
 Queued imports are processed while the app is running. If Docker stops before a job finishes, open its saved source and run analysis again. The queue does not monitor YouTube channels or publish anything.
+
+## AI Clipper and editor defaults
+
+1. Import your footage and select its source. Open **AI Clipper**.
+2. Reuse an existing local Whisper transcript, create a transcript without rendering drafts, or paste timestamped WebVTT/SRT. Times are relative to the selected file or saved live chunk.
+3. Set the number and length of picks. Optionally restrict the search to a time range. **Transcript rules** needs no key and ranks spoken cues, not visual gameplay.
+4. Rank the transcript, review the quoted evidence and why it was picked, then edit the title and start/end. **Open in Editor** only loads an editable trim; it never exports.
+5. In the editor use **Trim**, **Frame**, **Captions**, and **Export**. Caption presets are Clean, Bold, and Minimal. Toggle burn-in explicitly after loading captions from Highlights. Save new-edit defaults under **Settings**; defaults do not change saved render recipes.
+
+**Optional local AI with Ollama.** Ollama is a separate program, not included with Clipper. On the machine running Ollama, install a recent version, preload a local model, and set `OLLAMA_NO_CLOUD=1` before restarting Ollama. Configure `SHEESH_OLLAMA_URL` and `SHEESH_OLLAMA_MODEL` in Clipper's local `.env` (see `.env.example`); use a verified, trusted local Ollama server, not a LAN or public service. On Docker Desktop the host URL is usually `http://host.docker.internal:11434`. Restart Clipper via `runme.bat`, then choose **Ollama (local AI)**. If the service cannot verify local-only mode or the model is missing, transcript rules are still available. Don't expose Ollama to your network to fix connectivity.
+
+No external AI service is called by AI Clipper. The app supplies fixed, source-based candidates to local Ollama, then checks selected IDs and quotes. Both modes can miss strong moments, particularly when the footage has no useful dialogue. **Highlights** remains the better first pass for visual or audio-only action.
 
 ## Privacy and providers
 

@@ -38,6 +38,7 @@ class AnalysisRequest(BaseModel):
     language: LANGUAGE = "english"
     allow_cloud: StrictBool = False
     visual_motion: StrictBool = False
+    transcript_only: StrictBool = False
     clip_length: float = Field(default=30, ge=5, le=120)
     count: int = Field(default=5, ge=1, le=12)
 
@@ -493,16 +494,17 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
 
     def execute(job: dict, spec: AnalysisRequest, folder: Path, source: Path, duration: float):
         try:
-            job.update(status="running", message="Measuring source audio activity")
+            job.update(status="running", message="Preparing local transcription" if spec.transcript_only else "Measuring source audio activity")
             save(job, folder)
             warnings = []
-            try:
-                levels = audio_activity(source, duration)
-            except (OSError, subprocess.SubprocessError, ValueError):
-                levels = []
-                warnings.append("Could not measure audio activity.")
+            levels = []
+            if not spec.transcript_only:
+                try:
+                    levels = audio_activity(source, duration)
+                except (OSError, subprocess.SubprocessError, ValueError):
+                    warnings.append("Could not measure audio activity.")
             motion = None
-            if spec.visual_motion:
+            if spec.visual_motion and not spec.transcript_only:
                 job["message"] = "Measuring local visual motion"
                 save(job, folder)
                 try:
@@ -510,7 +512,7 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
                 except (OSError, subprocess.SubprocessError, ValueError):
                     warnings.append("Could not measure visual motion; analysis continued without it.")
             if spec.provider != "audio":
-                if not levels:
+                if not levels and not spec.transcript_only:
                     warnings.append("No usable audio stream detected; no transcription was sent or run.")
                 else:
                     job["message"] = "Transcribing locally" if spec.provider == "whisper" else "Transcribing audio with AssemblyAI"
@@ -531,11 +533,13 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
                         # Third-party/native errors can print tokens, private
                         # paths or audio URLs; return only a clean explanation.
                         provider = "Local Whisper" if spec.provider == "whisper" else "AssemblyAI"
-                        warnings.append(f"{provider} could not transcribe this source; suggestions use local signals only.")
-            job["suggestions"] = suggestions_for(levels, job["captions"], duration, spec.clip_length, spec.count, motion)
+                        tail = "" if spec.transcript_only else "; suggestions use local signals only"
+                        warnings.append(f"{provider} could not transcribe this source{tail}.")
+            if not spec.transcript_only:
+                job["suggestions"] = suggestions_for(levels, job["captions"], duration, spec.clip_length, spec.count, motion)
             if job["captions"]:
                 (folder / (job["id"] + ".vtt")).write_text(make_vtt(job["captions"], 0, duration), encoding="utf-8")
-            if draft_callback:
+            if draft_callback and not spec.transcript_only:
                 job["message"] = "Saving local draft previews"
                 save(job, folder)
                 failures = 0
@@ -547,7 +551,8 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
                     save(job, folder)
                 if failures:
                     warnings.append(f"{failures} draft preview(s) could not be saved; the suggested time ranges remain editable.")
-            job.update(status="completed", message="Analysis ready for review. " + " ".join(warnings),
+            ready_message = ("Transcript ready for review." if job["captions"] else "No transcript available.") if spec.transcript_only else "Analysis ready for review."
+            job.update(status="completed", message=" ".join([ready_message, *warnings]),
                        warnings=warnings)
             save(job, folder)
         except Exception:
@@ -582,6 +587,8 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
 
     def submit(spec: AnalysisRequest, *, queue_if_busy: bool = False) -> dict:
         nonlocal dispatcher_running
+        if spec.transcript_only and (spec.provider != "whisper" or spec.allow_cloud or spec.visual_motion):
+            raise HTTPException(400, "Transcript-only mode uses local Whisper only")
         if spec.provider == "assemblyai" and not spec.allow_cloud:
             raise HTTPException(400, "Confirm sending this source audio to AssemblyAI for this run")
         if queue_if_busy and spec.provider != "audio":
@@ -601,7 +608,7 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
             raise HTTPException(422, "Invalid source duration")
         job_id = media.media_id()
         job = {"id": job_id, "source_id": spec.source_id, "provider": spec.provider,
-               "language": spec.language, "visual_motion": spec.visual_motion,
+               "language": spec.language, "visual_motion": spec.visual_motion, "transcript_only": spec.transcript_only,
                "status": "queued", "message": "Analysis queued",
                "duration": duration, "created_at": time(), "suggestions": [], "captions": [],
                "captions_url": f"/api/analysis/{job_id}/captions.vtt", "warnings": []}

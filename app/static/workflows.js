@@ -149,7 +149,7 @@ function selectSuggestion(s) {
   $('start').value=String(start);$('end').value=String(end);$('cuts').replaceChildren();
   if(video.readyState>=1)video.currentTime=start;
   updateControls();paint();refreshCaptionView();
-  workspace.open('editor-workspace','edit-title');
+  editorTabs.open('trim');workspace.open('editor-workspace','edit-title');
   announce('Suggested trim loaded. Adjust it before saving or exporting.');
 }
 function paintAnalysis(jobs) {
@@ -160,7 +160,7 @@ function paintAnalysis(jobs) {
     const method=provider+(j.visual_motion?' + motion':'');
     const {body,actions,left}=card(method+' · '+(j.language==='hinglish'?'Hinglish':'English'),statusLabel[j.status]||'Status unknown',j.message||'',j.status);
     body.dataset.workflowKey='analysis:'+j.id;
-    if(j.captions?.length)actions.append(button('Review captions',()=>setCaption(j),'captions'));
+    if(j.captions?.length)actions.append(button('Review captions',()=>{setCaption(j);editorTabs.open('captions');workspace.open('editor-workspace','edit-title');},'captions'));
     if(j.status==='completed'&&!j.suggestions?.length)left.append(node('p','No candidate clips were found. You can still trim this source by hand.'));
     host.append(body);
     for(const [i,s] of (j.suggestions||[]).entries()){
@@ -246,7 +246,8 @@ function downloadCaptions(){
 }
 function refreshCaptionView() {
   const host=$('captions');host.hidden=!activeCaption;host.replaceChildren();
-  if(!activeCaption)return;
+  $('caption-placeholder').hidden=!!activeCaption;
+  if(!activeCaption){paint();return;}
   const current=activeCaption,start=value('start'),end=value('end');
   const actions=node('div',undefined,'caption-actions'), label=node('label','Burn captions into drafts and exports','check-row'), check=node('input');
   check.type='checkbox';check.checked=current.enabled;label.prepend(check);check.addEventListener('change',()=>{current.enabled=check.checked;paint();});

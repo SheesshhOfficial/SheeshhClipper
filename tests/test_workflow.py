@@ -116,6 +116,28 @@ class Workflow(unittest.TestCase):
         self.assertTrue(result["suggestions"][0]["draft"]["id"])
         self.assertEqual(list((self.root / "exports").glob("*.mp4")), [])
 
+    def test_ai_clipper_ranks_without_saving_until_manual_render(self):
+        source = self.client.get("/api/sources").json()[0]
+        result = self.client.post("/api/ai-clipper/rank", json={
+            "source_id": self.source, "min_seconds": 5, "max_seconds": 15,
+            "cues": [{"start": 0, "end": min(source["duration"], 10),
+                      "text": "Watch this. We lost the police chase and finally made it out!"}],
+        })
+        self.assertEqual(200, result.status_code, result.text)
+        pick = result.json()["candidates"][0]
+        self.assertIn(pick["evidence"], "Watch this. We lost the police chase and finally made it out!")
+        self.assertEqual([], self.client.get("/api/artifacts").json())
+        saved = self.client.post("/api/render", json={
+            "source_id": self.source, "start": pick["start"], "end": min(.9, pick["end"]),
+            "kind": "export", "aspect": "9:16", "layout": "fit",
+            "export_profile": "compact", "caption_style": "bold",
+            "clip_title": "My edited title",
+        })
+        self.assertEqual(200, saved.status_code, saved.text)
+        detail = self.client.get("/api/artifacts/" + saved.json()["id"]).json()
+        self.assertEqual("My edited title", detail["edit"]["clip_title"])
+        self.assertEqual("bold", detail["edit"]["caption_style"])
+
     def test_vod_import_submits_local_review_without_exporting(self):
         def download(root, job, folder):
             return [sys.executable, "-c", "import shutil,sys;shutil.copyfile(sys.argv[1],sys.argv[2])",

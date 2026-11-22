@@ -74,6 +74,7 @@ def main():
             assert page.locator("#draft").is_enabled()
             page.locator("#start").fill("0.25")
             page.locator("#end").fill("1.25")
+            page.get_by_role("tab", name="Frame").click()
             page.locator("#aspect").select_option("9:16")
             page.locator("#layout").select_option("split")
             for field, value in {"x":"0.55", "y":"0.1", "w":"0.35", "h":"0.45"}.items():
@@ -83,6 +84,7 @@ def main():
             page.go_back()
             assert page.locator("#start").input_value() == "0.25"
             assert page.locator("#layout").input_value() == "split"
+            page.get_by_role("tab", name="Export").click()
             for action, kind in [("draft", "draft"), ("export", "export")]:
                 with page.expect_response(lambda r: r.url.endswith("/api/render"), timeout=45_000) as response:
                     page.locator("#" + action).click()

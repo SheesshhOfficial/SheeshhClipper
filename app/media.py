@@ -107,10 +107,19 @@ def _captions(path: Path, rows, start: float, end: float) -> bool:
         path.write_text("\n".join(chunks), encoding="utf-8")
     return bool(chunks)
 
+# Fixed ASS presets: never interpolate arbitrary user text into this filter.
+CAPTION_STYLES = {
+    "clean": "FontName=DejaVu Sans,FontSize=20,Outline=2,MarginV=22",
+    "bold": "FontName=DejaVu Sans,FontSize=25,PrimaryColour=&H004AD5FF,Bold=1,OutlineColour=&H00000000,Outline=3,Shadow=0,Alignment=2,MarginV=22",
+    "minimal": "FontName=DejaVu Sans,FontSize=15,PrimaryColour=&H00FFFFFF,Bold=0,OutlineColour=&H00000000,Outline=1,Shadow=0,Alignment=2,MarginV=16",
+}
+
+
 def _render_part(source, target, record, request, start, end, captions, scratch):
     graph = filter_graph(record, request)
     if captions and _captions(scratch / "captions.srt", captions, start, end):
-        graph = graph.removesuffix("[out]") + "[clean];[clean]subtitles=captions.srt:force_style='FontName=DejaVu Sans,FontSize=20,Outline=2,MarginV=22'[out]"
+        style = CAPTION_STYLES[getattr(request, "caption_style", "clean")]
+        graph = graph.removesuffix("[out]") + f"[clean];[clean]subtitles=captions.srt:force_style='{style}'[out]"
     compact = request.kind == "export" and request.export_profile == "compact"
     args = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-n",
             "-protocol_whitelist", "file,pipe", "-f", "mov", "-ss", f"{start:.9f}",

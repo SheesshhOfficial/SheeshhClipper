@@ -6,6 +6,8 @@ services:
     environment:
       SHEESH_DATA_DIR: /data
       ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-}
+      SHEESH_OLLAMA_URL: ${SHEESH_OLLAMA_URL:-}
+      SHEESH_OLLAMA_MODEL: ${SHEESH_OLLAMA_MODEL:-}
     volumes:
       - ./data:/data
     init: true

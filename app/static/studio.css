@@ -245,3 +245,36 @@ kbd { display: inline-block; border: 1px solid var(--line); color: var(--ink); b
   .trim .lite { font-size: .76rem; padding-inline: 4px; }
   .source-bar { gap: 7px; margin-bottom: 17px; }
 }
+
+/* Editor inspector and browser-local defaults */
+.edit-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; margin:0 14px 12px; border-bottom:1px solid var(--line); }
+.edit-tabs button { min-height:40px; padding:6px 2px; background:transparent; color:var(--muted); border:0; border-bottom:2px solid transparent; font-size:.8rem; }
+.edit-tabs button:hover { color:var(--ink); }
+.edit-tabs button[aria-selected="true"] { color:var(--accent); border-color:var(--accent); font-weight:700; }
+.edit-panel { min-width:0; }
+.clip-title { margin-bottom:12px; }
+#panel-captions .hint { margin-top:8px; }
+#panel-captions .caption-panel { padding:12px 0 0; }
+#edit-warning { margin-top:9px; }
+.defaults-form { display:grid; gap:13px; padding:0 17px 17px; max-width:620px; }
+.defaults-form label { display:grid; gap:5px; color:var(--muted); font-size:.83rem; }
+.defaults-form .hint:empty { display:none; }
+.ai-controls { padding:14px 17px; display:grid; gap:9px; }
+.ai-controls label { display:grid; gap:5px; }
+.ai-controls textarea { width:100%; min-height:116px; }
+@media (max-width:900px) { .workflow ol { grid-template-columns:repeat(6,minmax(0,1fr)); } }
+@media (max-width:615px) { .workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:385px) { .defaults-form .two { grid-template-columns:1fr; } }
+.ai-clipper-form { display:grid; gap:14px; padding:16px; }
+.ai-form-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr)); gap:9px; }
+.ai-clipper-form label, .ai-candidate label { display:grid; gap:4px; color:var(--muted); font-size:.83rem; }
+.ai-transcript-panel { display:grid; gap:8px; padding:12px; border:1px solid var(--line); background:var(--rail); border-radius:9px; }
+.ai-transcript-panel textarea { width:100%; resize:vertical; min-height:100px; }
+.ai-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.ai-candidates { display:grid; gap:10px; margin-top:13px; }
+.ai-candidate { padding:13px 16px; display:grid; gap:9px; }
+.ai-candidate button { justify-self:start; }
+.ai-candidate p { overflow-wrap:anywhere; }
+.ai-focus-range { border:1px solid var(--line); border-radius:9px; padding:10px; margin:0; min-width:0; }
+.ai-focus-range legend { padding-inline:5px; color:var(--ink); font-size:.82rem; }
+.ai-candidate blockquote { margin:0; border-left:2px solid var(--accent); padding:3px 8px; color:var(--muted); overflow-wrap:anywhere; }
