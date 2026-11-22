@@ -75,6 +75,8 @@ a { color: var(--accent); }
 }
 .source-bar label { font-size: .77rem; font-weight: 700; color: var(--muted); flex: none; }
 .source-bar select { min-width: 0; width: min(100%, 370px); text-overflow: ellipsis; }
+#fetch-source-title { flex: none; }
+.source-bar:has(#fetch-source-title:not([hidden])) { flex-wrap: wrap; }
 .workspace-pane + .workspace-pane { margin-top: 24px; }
 .workspace-pane[hidden] + .workspace-pane { margin-top: 0; }
 .view-heading { margin-bottom: 19px; }

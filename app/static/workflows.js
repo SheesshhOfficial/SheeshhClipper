@@ -59,7 +59,7 @@ function paintIngest(jobs) {
   for(const j of visible){
     const ready=(j.outputs||[]).filter(o=>o.source_id);
     const isLive=j.kind==='live', videoId=new URLSearchParams((j.url||'').split('?')[1]||'').get('v');
-    const title=(isLive?'YouTube live capture':'YouTube video')+(videoId?' · '+videoId:'');
+    const title=j.youtube_title||(isLive?'YouTube live capture':'YouTube video')+(videoId?' · '+videoId:'');
     let stage=statusLabel[j.status]||'Status unknown';
     if(j.status==='running')stage=isLive?'Capturing':(/editing copy/i.test(j.message||'')?'Preparing editor copy':'Downloading');
     if(j.status==='completed')stage=isLive?'Capture complete':'Imported';

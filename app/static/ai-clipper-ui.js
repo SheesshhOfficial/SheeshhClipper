@@ -183,7 +183,7 @@
       if(Number.isFinite(duration))control.setAttribute('max',duration);
       else control.removeAttribute('max');
     }
-    info.textContent=state.source?'Active source: '+state.source.name+' · '+Number(state.source.duration).toFixed(2)+'s':'Choose a source from the source selector above.';
+    info.textContent=state.source?'Active source: '+(state.source.youtube_title||state.source.name)+' · '+Number(state.source.duration).toFixed(2)+'s':'Choose a source from the source selector above.';
     whisperStatus.textContent=state.source?'Checking saved transcripts…':'No source selected.';
     status.textContent=configured?'Pick a transcript and rank it. Nothing exports automatically.':'Checking ranking providers…';
     update();
@@ -285,6 +285,7 @@
   textarea.addEventListener('input',()=>{rankingConsent.check.checked=false;update();});
   refresh.addEventListener('click',()=>{providers().then(transcripts);});
   document.addEventListener('sheesh-source',onSource);
+  document.addEventListener('sheesh-source-metadata',update);
   setInterval(()=>{if(!root.closest('[hidden]')&&state.source&&sourceMode.value!=='paste')transcripts();},4000);
   providers().then(()=>{if(!sourceGen)onSource();else transcripts();});
   update();

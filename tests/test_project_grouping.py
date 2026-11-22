@@ -120,3 +120,73 @@ class ProjectGrouping(TestCase):
         self.assertEqual(f"local:{unverified}", rows[unverified]["project_key"])
         self.assertNotIn("youtube_video_id", rows[unverified])
         self.assertEqual(before, [record.read_bytes() for record in records])
+
+    def test_title_refresh_is_explicit_and_updates_the_same_video_group(self):
+        legacy_source = "a" * 32
+        self.legacy(20, f"https://youtu.be/{VIDEO_A}", "vod",
+                    [{"name": "video.mp4", "source_id": legacy_source}])
+        old_record = self.source_record(legacy_source, "legacy VOD.mp4")
+        new_job = self.publish(21, f"https://www.youtube.com/live/{VIDEO_A}", "live", ["chunk-00000000.mp4"])
+        latest_source = new_job["outputs"][0]["source_id"]
+        other = self.publish(22, f"https://www.youtube.com/watch?v={VIDEO_B}", "vod", ["video.mp4"])
+        local_source = "c" * 32
+        self.source_record(local_source, f"YouTube-{VIDEO_A}-name-is-not-proof.mp4")
+        before = old_record.read_bytes()
+        with patch.object(ingest, "spawn") as spawn:
+            self.assertTrue(all("youtube_title" not in row for row in self.client.get("/api/sources").json()))
+            self.assertEqual(422, self.client.post(f"/api/sources/{local_source}/youtube-title").status_code)
+            self.assertEqual(404, self.client.post(f"/api/sources/{'f' * 32}/youtube-title").status_code)
+            spawn.assert_not_called()
+            spawn.return_value.returncode = 0
+            spawn.return_value.communicate.return_value = (b'"  My\\nvideo \\u202e title \\ud83c\\udfae "\n', None)
+            response = self.client.post(f"/api/sources/{legacy_source}/youtube-title")
+            self.assertEqual(200, response.status_code, response.text)
+            self.assertEqual({"source_id": legacy_source, "youtube_video_id": VIDEO_A,
+                              "youtube_title": "My video title 🎮"}, response.json())
+            command = spawn.call_args.args[0]
+            self.assertEqual(f"https://www.youtube.com/watch?v={VIDEO_A}", command[-1])
+            self.assertIn("--skip-download", command)
+            self.assertIs(subprocess.DEVNULL, spawn.call_args.kwargs["stderr"])
+            self.assertEqual(25, spawn.return_value.communicate.call_args.kwargs["timeout"])
+            rows = {row["id"]: row for row in self.client.get("/api/sources").json()}
+            self.assertEqual("My video title 🎮", rows[legacy_source]["youtube_title"])
+            self.assertEqual("My video title 🎮", rows[latest_source]["youtube_title"])
+            self.assertNotIn("youtube_title", rows[other["outputs"][0]["source_id"]])
+            self.assertNotIn("youtube_title", rows[local_source])
+            self.assertEqual("My video title 🎮", self.client.get(f"/api/ingest/{new_job['id']}").json()["youtube_title"])
+            spawn.assert_called_once()
+        self.assertEqual(before, old_record.read_bytes())
+        self.assertEqual(self.fixture.read_bytes(), (self.root / "originals" / (legacy_source + ".mp4")).read_bytes())
+
+    def test_title_refresh_timeout_and_failure_do_not_persist_or_echo_process_output(self):
+        job = self.publish(21, f"https://youtu.be/{VIDEO_A}", "vod", ["video.mp4"])
+        source_id = job["outputs"][0]["source_id"]
+        path = f"/api/sources/{source_id}/youtube-title"
+        with patch.object(ingest, "spawn") as spawn, patch.object(ingest, "terminate") as terminate:
+            process = spawn.return_value
+            process.communicate.side_effect = [subprocess.TimeoutExpired("private worker trace", 25), (b"", None)]
+            response = self.client.post(path)
+            self.assertEqual(504, response.status_code)
+            self.assertNotIn("private worker trace", response.text)
+            terminate.assert_called_once_with(process, kill=True)
+            process.communicate.side_effect = None
+            process.returncode = 1
+            process.communicate.return_value = (b"private error details", None)
+            failed = self.client.post(path)
+            self.assertEqual(502, failed.status_code)
+            self.assertNotIn("private error details", failed.text)
+            with ingest.TITLE_LOOKUP_LOCK:
+                self.assertEqual(409, self.client.post(path).status_code)
+            self.assertEqual(2, spawn.call_count)
+        self.assertIsNone(ingest.cached_youtube_title(self.root, VIDEO_A))
+        self.assertNotIn("youtube_title", self.client.get("/api/sources").json()[0])
+
+    def test_title_cache_keeps_case_distinct_ids_on_windows_filenames(self):
+        self.assertEqual(VIDEO_A.casefold(), VIDEO_B.casefold())
+        one = ingest.title_path(self.root, VIDEO_A)
+        two = ingest.title_path(self.root, VIDEO_B)
+        self.assertNotEqual(one.name.casefold(), two.name.casefold())
+        ingest.cache_youtube_title(self.root, VIDEO_A, "Uppercase ID")
+        ingest.cache_youtube_title(self.root, VIDEO_B, "Lowercase ID")
+        self.assertEqual("Uppercase ID", ingest.cached_youtube_title(self.root, VIDEO_A))
+        self.assertEqual("Lowercase ID", ingest.cached_youtube_title(self.root, VIDEO_B))

@@ -10,6 +10,14 @@ const value = id => $(id).valueAsNumber;
 const clamp = (n,min=0,max=1) => Math.max(min,Math.min(max,n));
 const fmt = n => {const v = Math.max(0,Math.floor(n || 0)); return String(Math.floor(v/60)).padStart(2,'0') + ':' + String(v%60).padStart(2,'0');};
 let noticeTimer;
+let titleLookupRunning=false;
+function updateTitleControl() {
+  const button=$('fetch-source-title');
+  const selected=state.source;
+  button.hidden=!selected?.youtube_video_id || Boolean(selected.youtube_title);
+  button.disabled=titleLookupRunning;
+  button.textContent=titleLookupRunning?'Looking up title…':'Get YouTube title';
+}
 function announce(text, error=false, persistent=false) {
   const notice=$('notice');
   clearTimeout(noticeTimer);
@@ -129,6 +137,7 @@ function loadSource(id) {
   const hit = state.sources.find(s=>String(s.id)===String(id));
   if(!hit) return;
   state.source = hit;
+  updateTitleControl();
   const defaults=editorDefaults.read();
   for(const [id,value] of [['aspect',defaults.aspect],['layout',defaults.layout],['caption-style',defaults.caption],['export-profile',defaults.profile],['clip-title',''],['focus-x','.5'],['focus-y','.5']]){
     $(id).value=value;
@@ -152,15 +161,29 @@ function loadSource(id) {
 }
 async function sources(selectId, preserve=false) {
   state.sources=await api('/api/sources');
+  const desired = [selectId,state.source?.id,state.sources[0]?.id]
+    .find(id=>id!=null && state.sources.some(row=>String(row.id)===String(id)));
+  paintSourcePicker(desired);
+  if (desired) {
+    if(preserve && state.source && String(state.source.id)===String(desired)) {
+      const refreshed=state.sources.find(s=>String(s.id)===String(desired));
+      if(refreshed)state.source=refreshed;
+    } else loadSource(desired);
+  } else state.source=null;
+  updateTitleControl();
+  updateControls();
+  visibleGallery();
+}
+function paintSourcePicker(desired) {
   $('source').replaceChildren();
   if(!state.sources.length){
-    state.source=null;
     $('source').append(new Option('No sources yet',''));
   }
   const projects=sourceProjects(state.sources);
+  const labels=sourceOptionLabels(state.sources,projects);
   const grouped=new Map();
   for(const x of state.sources){
-    const project=projects.get(x.id), option=new Option(x.name,String(x.id));
+    const project=projects.get(x.id), option=new Option(labels.get(x.id),String(x.id));
     if(!x.youtube_video_id){$('source').append(option);continue;}
     if(!grouped.has(project.key)){
       const group=document.createElement('optgroup');group.label=project.label;
@@ -168,14 +191,28 @@ async function sources(selectId, preserve=false) {
     }
     grouped.get(project.key).append(option);
   }
-  const desired = selectId ?? state.source?.id ?? state.sources[0]?.id;
-  if (desired) {
-    if(preserve && state.source && String(state.source.id)===String(desired))$('source').value=String(desired);
-    else loadSource(desired);
-  }
-  updateControls();
-  visibleGallery();
+  if(desired)$('source').value=String(desired);
 }
+$('fetch-source-title').addEventListener('click',async()=>{
+  const selected=state.source, trigger=$('fetch-source-title');
+  if(!selected?.youtube_video_id||titleLookupRunning)return;
+  const returnFocus=document.activeElement===trigger;
+  titleLookupRunning=true;updateTitleControl();
+  try {
+    const result=await api('/api/sources/'+encodeURIComponent(selected.id)+'/youtube-title',{method:'POST'});
+    for (const source of state.sources) {
+      if(source.youtube_video_id===result.youtube_video_id)source.youtube_title=result.youtube_title;
+    }
+    if(state.source?.youtube_video_id===result.youtube_video_id)state.source.youtube_title=result.youtube_title;
+    paintSourcePicker(state.source?.id);
+    updateTitleControl();
+    visibleGallery();
+    if(returnFocus && trigger.hidden && document.activeElement===document.body)$('source').focus();
+    document.dispatchEvent(new CustomEvent('sheesh-source-metadata'));
+    announce('YouTube title saved. Your footage and edits are unchanged.');
+  } catch(e){announce(e.message,true);}
+  finally {titleLookupRunning=false;updateTitleControl();}
+});
 function safeArtifact(p) {
   try {const u=new URL(p,location.href); return u.origin===location.origin?u.href:null;} catch(_){return null;}
 }

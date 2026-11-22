@@ -31,3 +31,21 @@ test('library search matches project and clip text and combines with the kind fi
   ]), 'draft', '  ABC   FIRST '))`,context);
   assert.deepEqual(JSON.parse(actual).map(item=>item.id),['a']);
 });
+
+test('a title from any sibling labels the whole project while chunks stay distinct', ()=>{
+  const actual=vm.runInContext(`JSON.stringify((()=>{
+    const key='youtube:U8bVUVQMPM8';
+    const common={project_key:key,youtube_video_id:'U8bVUVQMPM8'};
+    const rows=[
+      {...common,id:'vod',name:'YouTube-U8bVUVQMPM8-12345678-video.mp4'},
+      {...common,id:'live',name:'YouTube-U8bVUVQMPM8-abcdef12-chunk-00000002.mp4',youtube_title:'  GTA Highlights  '},
+      {id:'local',name:'my own file.mp4',youtube_title:'not a YouTube source'}
+    ];
+    const bySource=sourceProjects(rows);
+    const items=[{source_id:'vod',name:'draft.mp4',kind:'draft'}];
+    return [collectProjects(items,bySource)[0].label,
+      rows.map(row=>sourceOptionLabels(rows,bySource).get(row.id)),
+      findProjectClips(items,bySource,'all','gta u8bvuvqmpm8').length];
+  })())`,context);
+  assert.deepEqual(JSON.parse(actual),['GTA Highlights',['GTA Highlights','GTA Highlights · Chunk 2','my own file.mp4'],1]);
+});

@@ -44,6 +44,12 @@ test('import state, saved chunk count and editor action',()=>{
   assert.equal(progress.attributes['aria-label'],'Preparing editor copy for YouTube import');
   assert.equal(progress.attributes.value,undefined);
 });
+test('import cards display the provided YouTube title as plain text',()=>{
+  const {$,run}=load();
+  run("paintIngest([{id:'vod',kind:'vod',status:'completed',youtube_title:'GTA <Highlights>',url:'https://www.youtube.com/watch?v=U8bVUVQMPM8'}])");
+  const title=$('ingest-jobs').children[0].children[0].children[0].textContent;
+  assert.equal(title,'GTA <Highlights>');
+});
 test('analysis cards distinguish failures from empty successful reviews',()=>{
   const {$,run}=load();
   run("paintAnalysis([{provider:'audio',status:'failed',message:'Could not finish'},{provider:'whisper',status:'completed',captions:[{text:'Example'}]}])");

@@ -14,6 +14,8 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 
 The dark workspace separates **Sources**, **Highlights**, **AI Clipper**, **Editor**, **Saved clips**, and **Settings**. The source picker stays available across the views. Changing views does not reset your trim or framing. Saved clips are grouped by project. Re-imports and live chunks for the same YouTube video share a project, and each local upload keeps its own group. Older clips are grouped from saved metadata when available. Existing media files stay where they are. The layout takes inspiration from [SupoClip’s app guide](https://github.com/FujiwaraChoki/supoclip/blob/main/docs/app-guide.md), not its code.
 
+New YouTube imports show the actual video title when YouTube returns it. For an older source still labeled by video ID, select it under **Active source** and click **Get YouTube title**. This fetches only the public title, without an API key or a second video download, and does not change any footage or edits. If YouTube no longer provides the title, the ID remains visible.
+
 | Step | What to do |
 | --- | --- |
 | Choose a source | Drop an MP4 into the Local file card or upload it using the button, download a finished public YouTube video, or start a public live capture. Live capture writes short playable segments; open a completed segment as a source. If the live event has ended and its replay is available, use YouTube VOD. Stop saves already-closed segments and attempts to finish the current one. Turn on **Automatically find highlights** before import to prepare local drafts for review. MP4 and VOD jobs use audio and motion and can briefly queue. Live uses audio as chunks finish and skips a chunk if the worker is busy. Final export is always manual. |

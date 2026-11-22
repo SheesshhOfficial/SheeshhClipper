@@ -17,6 +17,23 @@ from app import ingest
 
 
 class IngestTests(unittest.TestCase):
+    def test_title_flags_do_not_replace_live_stdout_or_enable_download_on_refresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            url = "https://www.youtube.com/watch?v=00000000000"
+            for kind in ("vod", "live"):
+                args = ingest.downloader(folder, {"kind": kind, "url": url}, folder)
+                i = args.index("--print-to-file")
+                self.assertEqual(["before_dl:%(title)j", str(folder / ingest.TITLE_SIDECAR)], args[i+1:i+3])
+                self.assertIn("--no-simulate", args)
+                self.assertNotIn("--print", args)
+                if kind == "live":
+                    self.assertEqual("-", args[args.index("-o") + 1])
+            args = ingest.title_lookup_command(folder, "00000000000")
+            self.assertIn("--simulate", args)
+            self.assertIn("--skip-download", args)
+            self.assertEqual(["--print", "%(title)j", "--", url], args[-4:])
+
     def test_canonicalizes_and_rejects_untrusted_urls(self):
         good = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         for url in (good, "https://youtu.be/dQw4w9WgXcQ?si=x",
@@ -91,15 +108,18 @@ class IngestTests(unittest.TestCase):
             url = "https://youtu.be/dQw4w9WgXcQ"
 
             def mock_download(data, job, folder):
+                sidecar = folder / ingest.TITLE_SIDECAR
                 if job["kind"] == "vod":
                     selected = alternate if job["url"].endswith("11111111111") else clip
-                    return [sys.executable, "-c", "import shutil,sys;shutil.copyfile(sys.argv[1],sys.argv[2])",
-                            str(selected), str(folder / ("video" + selected.suffix))]
+                    title = "VOD title – लड़ाई 🎮" if selected is clip else ""
+                    return [sys.executable, "-c",
+                            "import json,pathlib,shutil,sys;pathlib.Path(sys.argv[3]).write_text(json.dumps(sys.argv[4])+'\\n');shutil.copyfile(sys.argv[1],sys.argv[2])",
+                            str(selected), str(folder / ("video" + selected.suffix)), str(sidecar), title]
                 if job["url"].endswith("22222222222"):
                     return [sys.executable, "-c", "import sys;sys.stderr.write('ERROR: Requested format is not available');sys.exit(1)"]
                 return [sys.executable, "-c",
-                        "import pathlib,sys,time;sys.stdout.buffer.write(pathlib.Path(sys.argv[1]).read_bytes());sys.stdout.buffer.flush();pathlib.Path(sys.argv[2]).touch();time.sleep(30)",
-                        str(stream), str(folder / "sent")]
+                        "import json,pathlib,sys,time;pathlib.Path(sys.argv[3]).write_text(json.dumps('Live title 🚀')+'\\n');sys.stdout.buffer.write(pathlib.Path(sys.argv[1]).read_bytes());sys.stdout.buffer.flush();pathlib.Path(sys.argv[2]).touch();time.sleep(30)",
+                        str(stream), str(folder / "sent"), str(sidecar)]
 
             def wait_for(id, predicate):
                 until = time.monotonic() + 15
@@ -115,12 +135,17 @@ class IngestTests(unittest.TestCase):
                 self.assertEqual(r.status_code, 202)
                 job = wait_for(r.json()["id"], lambda j: j["status"] in ingest.TERMINAL)
                 self.assertEqual(job["status"], "completed")
+                self.assertEqual("VOD title – लड़ाई 🎮", job["youtube_title"])
                 part = job["outputs"][0]
                 self.assertTrue((root / "originals" / (part["source_id"] + ".mp4")).exists())
+                self.assertEqual("VOD title – लड़ाई 🎮", json.loads(
+                    (root / "originals" / (part["source_id"] + ".json")).read_text(encoding="utf-8")
+                )["youtube_title"])
                 self.assertEqual(client.get(part["url"], headers={"Range": "bytes=0-15"}).status_code, 206)
                 r = client.post("/api/ingest", json={"url": "https://youtu.be/11111111111", "kind": "vod"})
                 fallback = wait_for(r.json()["id"], lambda j: j["status"] in ingest.TERMINAL)
                 self.assertEqual(fallback["status"], "completed")
+                self.assertNotIn("youtube_title", fallback)
                 folder = root / "downloads" / fallback["id"]
                 self.assertEqual((folder / "video.webm").read_bytes(), alternate.read_bytes())
                 self.assertEqual(fallback["outputs"][0]["name"], "editing-proxy.mp4")
@@ -135,6 +160,7 @@ class IngestTests(unittest.TestCase):
                 self.assertEqual(client.post(f"/api/ingest/{id}/stop").status_code, 200)
                 job = wait_for(id, lambda j: j["status"] in ingest.TERMINAL)
                 self.assertEqual(job["status"], "stopped")
+                self.assertEqual("Live title 🚀", job["youtube_title"])
                 self.assertGreaterEqual(len(job["outputs"]), 3)
                 self.assertEqual(len(client.get("/api/ingest").json()), 3)
                 for part in job["outputs"]:
@@ -149,7 +175,9 @@ class IngestTests(unittest.TestCase):
                     self.assertLessEqual(video["height"], 720)
                     self.assertEqual(video["r_frame_rate"], "30/1")
                     self.assertEqual(audio["codec_name"], "aac")
-                    self.assertTrue((root / "originals" / (part["source_id"] + ".json")).exists())
+                    self.assertEqual("Live title 🚀", json.loads(
+                        (root / "originals" / (part["source_id"] + ".json")).read_text(encoding="utf-8")
+                    )["youtube_title"])
                 failed = client.post("/api/ingest", json={"url": "https://youtu.be/22222222222", "kind": "live"})
                 failure = wait_for(failed.json()["id"], lambda j: j["status"] in ingest.TERMINAL)
                 self.assertEqual(failure["status"], "failed")

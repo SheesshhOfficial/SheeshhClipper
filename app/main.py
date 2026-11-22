@@ -149,11 +149,15 @@ def stored_video_id(source: dict) -> str | None:
     video_id = source.get("youtube_video_id")
     return video_id if isinstance(video_id, str) and ingest.VIDEO_ID.fullmatch(video_id) else None
 
-def source_public(source: dict, legacy_video_id: str | None = None) -> dict:
+def source_public(source: dict, legacy_video_id: str | None = None,
+                  cached_youtube_title: str | None = None) -> dict:
     result = {key: source[key] for key in ("id", "name", "duration", "width", "height", "url")}
     video_id = stored_video_id(source) or legacy_video_id
     if video_id:
         result["youtube_video_id"] = video_id
+        title = cached_youtube_title or ingest.safe_youtube_title(source.get("youtube_title"))
+        if title:
+            result["youtube_title"] = title
     result["project_key"] = f"youtube:{video_id}" if video_id else f"local:{source['id']}"
     return result
 
@@ -226,7 +230,28 @@ def sources():
         root, {source["id"] for source in items if
                source.get("source_kind") != "local" and stored_video_id(source) is None},
     )
-    return [source_public(source, legacy.get(source["id"])) for source in items]
+    titles = {}
+    result = []
+    for source in items:
+        legacy_video_id = legacy.get(source["id"])
+        video_id = stored_video_id(source) or legacy_video_id
+        if video_id and video_id not in titles:
+            titles[video_id] = ingest.cached_youtube_title(root, video_id)
+        result.append(source_public(source, legacy_video_id, titles.get(video_id)))
+    return result
+
+
+@app.post("/api/sources/{source_id}/youtube-title")
+def refresh_source_title(source_id: str):
+    root = media.root()
+    source = record(root / "originals", source_id, "Source")
+    video_id = None
+    if source.get("source_kind") != "local":
+        video_id = stored_video_id(source) or ingest.legacy_source_video_ids(root, {source_id}).get(source_id)
+    if not video_id:
+        raise HTTPException(422, "This saved source is not linked to a verified YouTube video.")
+    title = ingest.refresh_youtube_title(root, video_id)
+    return {"source_id": source_id, "youtube_video_id": video_id, "youtube_title": title}
 
 @app.get("/api/sources/{id}/media")
 def source_file(id: str):

@@ -9,6 +9,7 @@ import signal
 import subprocess
 import threading
 from typing import Literal
+import unicodedata
 from urllib.parse import parse_qs, urlsplit
 from uuid import NAMESPACE_URL, uuid5
 
@@ -25,6 +26,9 @@ HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 TERMINAL = {"completed", "stopped", "failed"}
 LOCK = threading.RLock()
 ACTIVE = {}
+TITLE_LOOKUP_LOCK = threading.Lock()
+TITLE_SIDECAR = "youtube-title.jsonl"
+TITLE_LIMIT = 8192
 SEGMENT_SECONDS = 60
 # Prefer capped renditions, then accept another HLS size; the segmenter
 # still caps the editable output. Every branch requires picture and sound.
@@ -116,6 +120,74 @@ def cache(root):
     return folder
 
 
+def safe_youtube_title(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    # Keep international title text and emoji, but remove control characters
+    # and hidden directional overrides before displaying it.
+    text = "".join(
+        char if char in "\u200c\u200d" or unicodedata.category(char) not in {"Cc", "Cf", "Cs"}
+        else (" " if char.isspace() else "") for char in value
+    )
+    return " ".join(text.split())[:200].strip() or None
+
+
+def parse_youtube_title(data: bytes) -> str | None:
+    if len(data) > TITLE_LIMIT:
+        return None
+    for line in data.splitlines():
+        try:
+            title = safe_youtube_title(json.loads(line))
+        except (ValueError, UnicodeError):
+            continue
+        if title:
+            return title
+    return None
+
+
+def title_path(root: Path, video_id: str) -> Path:
+    if not VIDEO_ID.fullmatch(video_id):
+        raise ValueError("Not a YouTube video ID")
+    # Windows bind mounts may fold filename case; encoding the original
+    # ASCII bytes preserves distinct case-sensitive YouTube IDs.
+    return root / "cache" / "youtube-titles" / f"{video_id.encode('ascii').hex()}.json"
+
+
+def cached_youtube_title(root: Path, video_id: str) -> str | None:
+    try:
+        record = json.loads(title_path(root, video_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return None
+    return safe_youtube_title(record.get("youtube_title")) if isinstance(record, dict) else None
+
+
+def cache_youtube_title(root: Path, video_id: str, title: str) -> None:
+    path = title_path(root, video_id)
+    with LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        media.write_record(path, {"youtube_title": title})
+
+
+def collect_download_title(root, job, folder):
+    """Consume a title emitted by the same downloader, without inspecting its logs."""
+    if job.get("youtube_title"):
+        return
+    try:
+        with (folder / TITLE_SIDECAR).open("rb") as file:
+            title = parse_youtube_title(file.read(TITLE_LIMIT + 1))
+    except OSError:
+        return
+    if title:
+        with LOCK:
+            job["youtube_title"] = title
+            try:
+                cache_youtube_title(root, youtube_video_id(job["url"]), title)
+                persist(root, job)
+            except OSError:
+                # Metadata is optional: a failed cache write must not stop video.
+                pass
+
+
 def directory(root, job):
     return root / ("downloads" if job["kind"] == "vod" else "live-chunks") / job["id"]
 
@@ -136,11 +208,18 @@ def load(root, id):
     return job
 
 
-def downloader(root, job, folder):
-    base = ["yt-dlp", "--ignore-config", "--no-plugin-dirs", "--no-playlist",
+def downloader_base(root):
+    return ["yt-dlp", "--ignore-config", "--no-plugin-dirs", "--no-playlist",
             "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "deno",
-            "--cache-dir", str(cache(root) / "yt-dlp"), "--socket-timeout", "20",
-            "--retries", "2", "--fragment-retries", "2", "--no-progress"]
+            "--cache-dir", str(cache(root) / "yt-dlp")]
+
+
+def downloader(root, job, folder):
+    base = downloader_base(root) + [
+        "--socket-timeout", "20", "--retries", "2", "--fragment-retries", "2", "--no-progress",
+        "--no-simulate", "--print-to-file", "before_dl:%(title)j",
+        str(folder / TITLE_SIDECAR).replace("%", "%%"),
+    ]
     if job["kind"] == "vod":
         base += ["--match-filter", "!is_live & !is_upcoming",
                  "-f", "bv[ext=mp4][vcodec^=avc1]+ba[ext=m4a]/b[ext=mp4][vcodec^=avc1]/bv+ba/b",
@@ -150,6 +229,48 @@ def downloader(root, job, folder):
                  "--downloader", "ffmpeg", "--downloader-args", "ffmpeg_o:-f mpegts",
                  "-o", "-"]
     return [*base, "--", job["url"]]
+
+
+def title_lookup_command(root: Path, video_id: str) -> list[str]:
+    if not VIDEO_ID.fullmatch(video_id):
+        raise ValueError("Not a YouTube video ID")
+    return downloader_base(root) + [
+        "--socket-timeout", "7", "--retries", "0", "--extractor-retries", "0",
+        "--simulate", "--skip-download", "--quiet", "--no-warnings", "--print", "%(title)j",
+        "--", f"https://www.youtube.com/watch?v={video_id}",
+    ]
+
+
+def refresh_youtube_title(root: Path, video_id: str) -> str:
+    if not TITLE_LOOKUP_LOCK.acquire(blocking=False):
+        raise HTTPException(409, "Another title lookup is running. Try again after it finishes.")
+    try:
+        try:
+            process = spawn(title_lookup_command(root, video_id), stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            try:
+                result, _ = process.communicate(timeout=25)
+            except subprocess.TimeoutExpired:
+                terminate(process, kill=True)
+                try:
+                    process.communicate(timeout=3)
+                except subprocess.TimeoutExpired:
+                    pass
+                raise HTTPException(504, "YouTube did not respond in time. Try finding the title again.") from None
+        except FileNotFoundError:
+            raise HTTPException(502, "YouTube title lookup needs yt-dlp in the local installation.") from None
+        except (OSError, subprocess.SubprocessError):
+            raise HTTPException(502, "Could not look up the YouTube title. Try again later.") from None
+        title = parse_youtube_title(result) if process.returncode == 0 else None
+        if not title:
+            raise HTTPException(502, "Could not read this YouTube title. Check that the public video is still available.")
+        try:
+            cache_youtube_title(root, video_id, title)
+        except OSError:
+            raise HTTPException(507, "Could not save the YouTube title to the local data folder.") from None
+        return title
+    finally:
+        TITLE_LOOKUP_LOCK.release()
 
 
 def editing_compatible(path):
@@ -266,8 +387,11 @@ def publish(root, job, path):
             temp.replace(target)
         finally:
             temp.unlink(missing_ok=True)
-    media.write_record(target.with_suffix(".json"), {"id": id, "name": name,
-                      "url": f"/api/sources/{id}/media", "youtube_video_id": video_id, **info})
+    source = {"id": id, "name": name, "url": f"/api/sources/{id}/media", "youtube_video_id": video_id, **info}
+    title = safe_youtube_title(job.get("youtube_title")) or cached_youtube_title(root, video_id)
+    if title:
+        source["youtube_title"] = title
+    media.write_record(target.with_suffix(".json"), source)
     output = {"name": path.name, "source_id": id, "url": f"/api/ingest/{job['id']}/files/{path.name}"}
     if job.get("auto_analyze"):
         output.update(request_auto_analysis(id, live=job["kind"] == "live"))
@@ -315,7 +439,8 @@ def run(root, job, stop):
                     p = spawn(downloader(root, job, folder), stdin=subprocess.DEVNULL,
                               stdout=logs, stderr=logs)
                     processes.append(p)
-                    code = wait_cancel(p, stop)
+                    code = wait_cancel(p, stop, on_poll=lambda: collect_download_title(root, job, folder))
+                    collect_download_title(root, job, folder)
                     if code == 0 and not stop.is_set():
                         origin = next((folder / f"video.{ext}" for ext in
                                        ("mp4", "mkv", "webm", "mov", "ts")
@@ -350,6 +475,7 @@ def run(root, job, stop):
                     offset = 0
                     def tick():
                         nonlocal offset
+                        collect_download_title(root, job, folder)
                         offset = publish_live(root, job, folder, offset)
                         # A failed segmenter must not leave an indefinite downloader.
                         return encoder.poll() is None
@@ -365,6 +491,7 @@ def run(root, job, stop):
                             enc_code = encoder.wait(timeout=5)
                     finally:
                         # Even after a timeout, already-finalized segments remain editable.
+                        collect_download_title(root, job, folder)
                         publish_live(root, job, folder, offset)
                     if enc_code:
                         code = enc_code
@@ -426,14 +553,36 @@ def start(request: Ingest):
 def jobs():
     root = media.root()
     with LOCK:
-        return [load(root, p.stem) for p in sorted(cache(root).glob("*.json"),
+        rows = [load(root, p.stem) for p in sorted(cache(root).glob("*.json"),
                                                    key=lambda f: f.stat().st_mtime, reverse=True)]
+    titles = {}
+    for row in rows:
+        expose_job_title(root, row, titles)
+    return rows
+
+
+def expose_job_title(root, job, titles):
+    """Decorate persisted jobs with cached same-video metadata, never a fetch."""
+    try:
+        video_id = youtube_video_id(job["url"])
+    except (KeyError, TypeError, ValueError):
+        return job
+    if video_id not in titles:
+        titles[video_id] = cached_youtube_title(root, video_id)
+    title = titles[video_id] or safe_youtube_title(job.get("youtube_title"))
+    if title:
+        job["youtube_title"] = title
+    else:
+        job.pop("youtube_title", None)
+    return job
 
 
 @router.get("/{id}")
 def status(id: str):
+    root = media.root()
     with LOCK:
-        return load(media.root(), id)
+        job = load(root, id)
+    return expose_job_title(root, job, {})
 
 
 @router.post("/{id}/stop")
