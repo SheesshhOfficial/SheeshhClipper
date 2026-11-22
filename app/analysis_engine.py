@@ -587,8 +587,10 @@ def make_router(heavy_lock: Lock, draft_callback: Callable[[str, dict], dict] | 
 
     def submit(spec: AnalysisRequest, *, queue_if_busy: bool = False) -> dict:
         nonlocal dispatcher_running
-        if spec.transcript_only and (spec.provider != "whisper" or spec.allow_cloud or spec.visual_motion):
-            raise HTTPException(400, "Transcript-only mode uses local Whisper only")
+        if spec.transcript_only and (spec.provider == "audio" or spec.visual_motion):
+            raise HTTPException(400, "Choose Whisper or AssemblyAI for transcript-only mode; motion scoring is not available")
+        if spec.transcript_only and spec.provider == "whisper" and spec.allow_cloud:
+            raise HTTPException(400, "Local Whisper does not use cloud consent")
         if spec.provider == "assemblyai" and not spec.allow_cloud:
             raise HTTPException(400, "Confirm sending this source audio to AssemblyAI for this run")
         if queue_if_busy and spec.provider != "audio":

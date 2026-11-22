@@ -33,6 +33,13 @@ class IngestTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ingest.canonical_youtube(url)
 
+    def test_downloader_children_do_not_inherit_provider_keys(self):
+        secrets = dict(ASSEMBLYAI_API_KEY="test-a", OPENROUTER_API_KEY="test-o",
+                       NVIDIA_API_KEY="test-n", YOUTUBE_API_KEY="test-y")
+        with patch.dict(os.environ, secrets), patch.object(ingest.subprocess, "Popen") as launch:
+            ingest.spawn(["yt-dlp"])
+            self.assertFalse(secrets.keys() & launch.call_args.kwargs["env"].keys())
+
     @unittest.skipUnless(find_spec("yt_dlp"), "Requires installed yt-dlp")
     def test_real_ytdlp_selector_offline(self):
         from yt_dlp import YoutubeDL, parse_options

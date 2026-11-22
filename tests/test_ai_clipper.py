@@ -1,10 +1,12 @@
-"""Test transcript-only ranking and mocked local-provider boundaries."""
+"""Test transcript-only ranking and mocked provider boundaries."""
+from io import BytesIO
 import json
 import os
 from tempfile import TemporaryDirectory
 from threading import Lock
 from unittest import TestCase
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -28,7 +30,9 @@ class AIClipperTest(TestCase):
         scratch = TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         environment = patch.dict(os.environ, SHEESH_DATA_DIR=scratch.name,
-                                 SHEESH_OLLAMA_URL="", SHEESH_OLLAMA_MODEL="")
+                                 SHEESH_OLLAMA_URL="", SHEESH_OLLAMA_MODEL="",
+                                 OPENROUTER_API_KEY="", OPENROUTER_MODEL="",
+                                 NVIDIA_API_KEY="", NVIDIA_MODEL="")
         environment.start()
         self.addCleanup(environment.stop)
         self.root = media.root()
@@ -197,3 +201,114 @@ class AIClipperTest(TestCase):
             focused = self.rank(cues=None, transcript_id=transcript_id, range_start=26, range_end=40)
             self.assertEqual(200, focused.status_code, focused.text)
             self.assertEqual(27, focused.json()["candidates"][0]["start"])
+
+    def test_hosted_ranking_is_strictly_per_run_opt_in(self):
+        config = dict(OPENROUTER_API_KEY="fake-openrouter-test-key",
+                      OPENROUTER_MODEL="vendor/chat-model:free", NVIDIA_API_KEY="fake-nvidia-test-key",
+                      NVIDIA_MODEL="nvidia/chat-model")
+        with patch.dict(os.environ, **config), patch.object(ai_clipper, "_cloud_request") as remote:
+            providers = self.client.get("/api/ai-clipper/providers").json()
+            for provider, prefix in (("openrouter", "OPENROUTER"), ("nvidia", "NVIDIA")):
+                self.assertEqual(
+                    {"available": True, "model": config[prefix + "_MODEL"], "uploads_transcript": True},
+                    providers[provider],
+                )
+                self.assertNotIn(config[prefix + "_API_KEY"], str(providers))
+                self.assertEqual(400, self.rank(provider=provider).status_code)
+                self.assertEqual(400, self.rank(provider=provider, allow_cloud=False).status_code)
+                self.assertEqual(422, self.rank(provider=provider, allow_cloud="true").status_code)
+                with self.lock:
+                    self.assertEqual(409, self.rank(provider=provider, allow_cloud=True).status_code)
+            remote.assert_not_called()
+
+    def test_authenticated_hosted_request_hits_one_fixed_target_and_keeps_exact_evidence(self):
+        cases = [
+            ("openrouter", "OPENROUTER", "https://openrouter.ai/api/v1/chat/completions", "x/one:free"),
+            ("nvidia", "NVIDIA", "https://integrate.api.nvidia.com/v1/chat/completions", "nvidia/two"),
+        ]
+        key = "fake-server-only-provider-key"
+        content = {"picks": [
+            {"id": 1, "title": "Chase", "reason": "A spoken escape setup", "evidence": "start a car chase"},
+            {"id": 2, "title": "Hallucinated", "reason": "A guess", "evidence": "flying cars for everyone"},
+            {"id": 2, "title": "Unexpected trace", "reason": key, "evidence": "mission complete"},
+        ]}
+        reply = {"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(content)}}]}
+        for provider, env, endpoint, model in cases:
+            with self.subTest(provider=provider), patch.dict(os.environ, **{
+                env + "_API_KEY": key, env + "_MODEL": model, env + "_BASE_URL": "https://invalid.example/",
+            }), patch.object(ai_clipper, "build_opener") as build:
+                opener = build.return_value
+                opener.open.return_value = BytesIO(json.dumps(reply).encode("utf-8"))
+                response = self.rank(provider=provider, allow_cloud=True)
+                self.assertEqual(200, response.status_code, response.text)
+                self.assertNotIn(key, response.text)
+                clip, = response.json()["candidates"]
+                self.assertEqual((2, 12), (clip["start"], clip["end"]))
+                self.assertEqual("start a car chase", clip["evidence"])
+                self.assertIn("hosted", response.json()["method_label"])
+                opener.open.assert_called_once()
+                req = opener.open.call_args.args[0]
+                self.assertEqual(endpoint, req.full_url)
+                self.assertEqual("POST", req.get_method())
+                self.assertEqual("Bearer " + key, req.get_header("Authorization"))
+                self.assertLessEqual(opener.open.call_args.kwargs["timeout"], 60)
+                proxy_handler, redirect_handler = build.call_args.args
+                self.assertEqual({}, proxy_handler.proxies)
+                self.assertIsNone(redirect_handler.redirect_request(req, None, 302, "Test", {},
+                                                                    "https://invalid.example"))
+                body = json.loads(req.data)
+                self.assertEqual(model, body["model"])
+                self.assertFalse(body["stream"])
+                self.assertEqual({"type": "json_object"}, body["response_format"])
+                self.assertNotIn("models", body)
+                self.assertNotIn("tools", body)
+                self.assertNotIn(key, req.data.decode())
+                self.assertNotIn(self.source_id, req.data.decode())
+                self.assertLessEqual(len(body["messages"][1]["content"].encode()), ai_clipper.PROMPT_BUDGET)
+                if provider == "openrouter":
+                    self.assertEqual({"allow_fallbacks": False, "require_parameters": True, "data_collection": "deny"},
+                                     body["provider"])
+                else:
+                    self.assertNotIn("provider", body)
+        self.assert_no_render()
+
+    def test_missing_model_dynamic_router_and_embedded_key_do_not_send(self):
+        key = "fake-server-only-provider-key"
+        with patch.dict(os.environ, OPENROUTER_API_KEY=key, NVIDIA_API_KEY=key), \
+                patch.object(ai_clipper, "_cloud_request") as remote:
+            for model in ("", "openrouter/auto", "openrouter/free"):
+                with patch.dict(os.environ, OPENROUTER_MODEL=model):
+                    self.assertFalse(self.client.get("/api/ai-clipper/providers").json()["openrouter"]["available"])
+                    self.assertEqual(503, self.rank(provider="openrouter", allow_cloud=True).status_code)
+            self.assertEqual(503, self.rank(provider="nvidia", allow_cloud=True).status_code)
+            with patch.dict(os.environ, OPENROUTER_MODEL="vendor/model"):
+                malicious = [dict(CUES[0], text=CUES[0]["text"] + " The token is " + key), CUES[1]]
+                response = self.rank(provider="openrouter", allow_cloud=True, cues=malicious)
+                self.assertEqual(422, response.status_code, response.text)
+                self.assertNotIn(key, response.text)
+            remote.assert_not_called()
+
+    def test_cloud_errors_and_truncated_json_are_sanitized_without_retry(self):
+        key = "fake-server-only-provider-key"
+        endpoint = "https://integrate.api.nvidia.com/v1/chat/completions"
+        with patch.dict(os.environ, NVIDIA_API_KEY=key, NVIDIA_MODEL="nvidia/two"), \
+                patch.object(ai_clipper, "ollama_picks") as local:
+            for status in (302, 401, 429):
+                with self.subTest(status=status), patch.object(ai_clipper, "build_opener") as build:
+                    data = BytesIO(key.encode())
+                    opener = build.return_value
+                    opener.open.side_effect = HTTPError(endpoint, status, key, None, data)
+                    response = self.rank(provider="nvidia", allow_cloud=True)
+                    self.assertEqual(429 if status == 429 else 502, response.status_code)
+                    self.assertNotIn(key, response.text)
+                    self.assertNotIn("candidates", response.json())
+                    opener.open.assert_called_once()
+            for content, finish_reason in (("not json", "stop"), ('{"picks":[]}', "length")):
+                with patch.object(ai_clipper, "_cloud_request", return_value={
+                    "choices": [{"message": {"content": content}, "finish_reason": finish_reason}],
+                }) as cloud:
+                    response = self.rank(provider="nvidia", allow_cloud=True)
+                    self.assertEqual(502, response.status_code)
+                    cloud.assert_called_once()
+            local.assert_not_called()
+        self.assertFalse(self.lock.locked())

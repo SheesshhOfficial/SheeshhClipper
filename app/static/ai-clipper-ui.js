@@ -59,9 +59,21 @@
   const info = element('p','Choose a source from the source selector above.',{id:'ai-clipper-source-status',class:'hint ai-source-status',role:'status'});
   const status = element('p','Ready to select a transcript.',{id:'ai-ranking-status',class:'hint ai-clipper-status',role:'status'});
   const form = element('form',undefined,{class:'ai-clipper-form'});
-  const sourceMode = choose([['whisper','Saved local Whisper transcript'], ['paste','Paste timestamped transcript']],{id:'ai-transcript-mode'});
-  const method = choose([['deterministic','Transcript rules (not an AI model)'],['ollama','Ollama (local AI)']],{id:'ai-ranking-method'});
-  method.options[1].disabled = true;
+  const sourceMode = choose([['whisper','Local Whisper transcript'], ['paste','Paste timestamped transcript'], ['assemblyai','AssemblyAI transcript (cloud)']],{id:'ai-transcript-mode'});
+  const method = choose([['deterministic','Transcript rules (not an AI model)'],['ollama','Ollama (local AI)'],['openrouter','OpenRouter (cloud AI)'],['nvidia','NVIDIA (cloud AI)']],{id:'ai-ranking-method'});
+  const rankProviders={ollama:'Ollama (local AI)',openrouter:'OpenRouter (cloud AI)',nvidia:'NVIDIA (cloud AI)'};
+  const cloudRank=()=>method.value==='openrouter'||method.value==='nvidia';
+  for (const option of Array.from(method.options).slice(1)) option.disabled=true;
+  function consent(id) {
+    const check=element('input',undefined,{id,type:'checkbox'});
+    const copy=element('span','');
+    const row=element('label',undefined,{class:'check-row',hidden:''});
+    row.append(check,copy);
+    return {check,copy,row};
+  }
+  const rankingConsent=consent('ai-ranking-cloud-consent');
+  const transcriptionConsent=consent('ai-transcription-cloud-consent');
+  transcriptionConsent.copy.textContent='Send this source’s audio to AssemblyAI to create this transcript (cloud).';
   const inputs = element('div',undefined,{class:'ai-form-options'});
   inputs.append(label('Transcript',sourceMode),label('Ranking method',method));
   const whisperPanel = element('div',undefined,{class:'ai-transcript-panel'});
@@ -69,7 +81,7 @@
   const language = choose([['english','English'],['hinglish','Hinglish']],{id:'ai-whisper-language'});
   const transcribe = button('Create local transcript');
   const whisperStatus = element('p','',{role:'status',class:'hint'});
-  whisperPanel.append(label('Local transcript',whisperSelect), label('Spoken language',language), transcribe, whisperStatus);
+  whisperPanel.append(label('Saved transcript',whisperSelect), label('Spoken language',language), transcriptionConsent.row, transcribe, whisperStatus);
   const pastePanel = element('div',undefined,{class:'ai-transcript-panel',hidden:''});
   const textarea = element('textarea',undefined,{id:'ai-transcript-paste',rows:7,maxlength:300000,placeholder:'00:00:00.000 --> 00:00:04.000\nThis is the first cue.\n\n00:00:04.000 --> 00:00:09.000\nThis is the next cue.',spellcheck:'false'});
   pastePanel.append(label('Paste WebVTT or SRT',textarea),element('p','Use source-relative timestamps and separate cues with a blank line.',{class:'hint'}));
@@ -86,43 +98,52 @@
   const refresh = button('Refresh providers');
   const actions=element('div',undefined,{class:'ai-actions'});
   actions.append(run,refresh);
-  form.append(inputs,whisperPanel,pastePanel,focus,ranges,actions);
+  form.append(inputs,whisperPanel,pastePanel,focus,ranges,rankingConsent.row,actions);
   const results = element('div',undefined,{class:'ai-candidates'});
   root.append(info,form,status,results);
 
   let sourceGen=0, queryNeedingRetry=false, transcriptReading=false, rankInProgress=false, newTranscript=false;
-  let whisperAvailable=false, configured=false, whisperActive=false;
+  let transcriptProviders={}, configured=false, whisperActive=false;
   function update() {
     const usePaste=sourceMode.value==='paste';
     pastePanel.hidden=!usePaste;
     whisperPanel.hidden=usePaste;
-    transcribe.disabled=!state.source||!whisperAvailable||newTranscript||whisperActive;
+    const assembly=sourceMode.value==='assemblyai';
+    transcribe.textContent=assembly?'Transcribe with AssemblyAI':'Create local transcript';
+    transcriptionConsent.row.hidden=!assembly;
+    rankingConsent.row.hidden=!cloudRank();
+    rankingConsent.copy.textContent=method.value==='openrouter'?
+      'Send candidate transcript excerpts, not audio or video, to OpenRouter and its selected model provider for this ranking (cloud).':
+      'Send candidate transcript excerpts, not audio or video, to NVIDIA for this ranking (cloud).';
+    transcribe.disabled=!state.source||!transcriptProviders[sourceMode.value]?.available||newTranscript||whisperActive||(assembly&&!transcriptionConsent.check.checked);
     whisperSelect.disabled=!whisperSelect.value;
-    run.disabled=!state.source||rankInProgress||!configured||(usePaste?!textarea.value.trim():!whisperSelect.value);
+    run.disabled=!state.source||rankInProgress||!configured||method.selectedOptions[0]?.disabled||(cloudRank()&&!rankingConsent.check.checked)||(usePaste?!textarea.value.trim():!whisperSelect.value);
   }
   async function providers() {
     refresh.disabled=true;
     const [ranking,whisper]=await Promise.allSettled([api('/api/ai-clipper/providers'),api('/api/analysis/providers')]);
     configured = ranking.status==='fulfilled' && ranking.value?.deterministic?.available===true;
-    const local = ranking.status==='fulfilled'?ranking.value?.ollama:null;
-    method.options[1].disabled=!local?.available;
-    method.options[1].textContent=local?.available?'Ollama (local AI)'+(local.model?' · '+local.model:''):'Ollama (not configured)';
-    if (method.selectedOptions[0]?.disabled) method.value='deterministic';
-    whisperAvailable=whisper.status==='fulfilled' && whisper.value?.whisper?.available===true;
+    for(const option of Array.from(method.options).slice(1)) {
+      const info=ranking.status==='fulfilled'?ranking.value?.[option.value]:null, name=rankProviders[option.value];
+      option.disabled=!info?.available;
+      option.textContent=info?.available?name+(info.model?' · '+info.model:''):name+' · not configured';
+    }
+    if (method.selectedOptions[0]?.disabled) {method.value='deterministic';rankingConsent.check.checked=false;}
+    transcriptProviders=whisper.status==='fulfilled'?whisper.value:{};
     if (!configured) status.textContent='Ranking providers could not be loaded. Select Refresh providers to retry.';
     else if (!rankInProgress) status.textContent='Pick a transcript and rank it. Results open as editable trims, not exports.';
     refresh.disabled=false;
     update();
   }
   async function transcripts() {
-    if (!state.source) return;
+    if (!state.source||sourceMode.value==='paste') return;
     if (transcriptReading) {queryNeedingRetry=true;return;}
     transcriptReading=true;
-    const generation=sourceGen;
+    const generation=sourceGen, provider=sourceMode.value;
     try {
       const rows=await api('/api/analysis?source_id='+encodeURIComponent(state.source.id));
-      if (generation!==sourceGen) return;
-      const jobs=Array.isArray(rows)?rows.filter(j=>j.provider==='whisper'):[];
+      if (generation!==sourceGen||provider!==sourceMode.value) return;
+      const jobs=Array.isArray(rows)?rows.filter(j=>j.provider===provider):[];
       const active=jobs.find(j=>j.status==='queued'||j.status==='running');
       whisperActive=!!active;
       const saved=jobs.filter(j=>j.status==='completed'&&Array.isArray(j.captions)&&j.captions.length);
@@ -136,11 +157,11 @@
         }
         if (saved.some(j=>j.id===before)) whisperSelect.value=before;
       }
-      whisperStatus.textContent=active?'Local transcription in progress.':
-        saved.length?'Saved local transcripts are ready to rank.':
-        jobs.length?'No usable local transcript yet. Review the latest job in Highlights, retry, or paste your own.':
-        !whisperAvailable?'Local Whisper is not available in this setup. Paste timestamped captions instead.':
-        'Create a local Whisper transcript or paste your own.';
+      whisperStatus.textContent=active?'Transcription in progress.':
+        saved.length?'Saved transcripts are ready to rank without sending audio again.':
+        jobs.length?'No usable transcript yet. Review the latest job in Highlights, retry, or paste your own.':
+        !transcriptProviders[provider]?.available?'This transcription provider is not configured. You can paste timestamped captions instead.':
+        provider==='whisper'?'Create a local Whisper transcript or paste your own.':'Create an AssemblyAI transcript only if you want to send this source’s audio.';
     } catch (_) {
       if(generation===sourceGen) whisperStatus.textContent='Could not check saved transcripts.';
     } finally {
@@ -151,6 +172,7 @@
   }
   function onSource() {
     ++sourceGen;
+    transcriptionConsent.check.checked=false;rankingConsent.check.checked=false;
     rankInProgress=false;newTranscript=false;whisperActive=false;
     results.replaceChildren();
     whisperSelect.replaceChildren(new Option('No saved transcript',''));
@@ -170,17 +192,21 @@
   transcribe.addEventListener('click',async()=>{
     const generation=sourceGen,source=state.source;
     if (!source||transcribe.disabled) return;
-    newTranscript=true;update();whisperStatus.textContent='Starting local Whisper…';
+    const provider=sourceMode.value, allow_cloud=provider==='assemblyai'&&transcriptionConsent.check.checked;
+    if(provider==='assemblyai'&&!allow_cloud)return;
+    transcriptionConsent.check.checked=false;
+    newTranscript=true;update();whisperStatus.textContent=provider==='assemblyai'?'Submitting audio to AssemblyAI…':'Starting local Whisper…';
     try {
       await api('/api/analysis',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        source_id:source.id,provider:'whisper',language:language.value,allow_cloud:false,visual_motion:false,transcript_only:true,
+        source_id:source.id,provider,language:language.value,allow_cloud,visual_motion:false,transcript_only:true,
       })});
       if (generation!==sourceGen) return;
+      if(provider!==sourceMode.value)return;
       whisperActive=true;
-      whisperStatus.textContent='Local transcript queued.';
+      whisperStatus.textContent=provider==='assemblyai'?'AssemblyAI transcript queued.':'Local transcript queued.';
       await transcripts();
     } catch (error) {
-      if (generation===sourceGen) whisperStatus.textContent='Could not start local transcription: '+error.message;
+      if (generation===sourceGen) whisperStatus.textContent='Could not start transcription: '+error.message;
     } finally {
       if (generation===sourceGen) {newTranscript=false;update();}
     }
@@ -222,7 +248,9 @@
     if(!Object.values(limits).every(Number.isInteger)||limits.count<1||limits.count>10||limits.min_seconds<5||limits.max_seconds>120||limits.max_seconds<limits.min_seconds){
       status.textContent='Choose 1–10 suggestions and ordered clip durations between 5 and 120 seconds.';return;
     }
-    const payload={source_id:source.id,provider:method.value,...limits};
+    const allow_cloud=cloudRank()&&rankingConsent.check.checked;
+    if(cloudRank()&&!allow_cloud)return;
+    const payload={source_id:source.id,provider:method.value,allow_cloud,...limits};
     try {
       const hasStart=rangeStart.value!=='',hasEnd=rangeEnd.value!=='';
       const start=hasStart?rangeStart.valueAsNumber:0,end=hasEnd?rangeEnd.valueAsNumber:source.duration;
@@ -233,8 +261,9 @@
       if (sourceMode.value==='paste') payload.cues=parseCues(textarea.value,source.duration);
       else payload.transcript_id=whisperSelect.value;
     } catch(error) {status.textContent=error.message;return;}
+    rankingConsent.check.checked=false;
     rankInProgress=true;update();
-    status.textContent=payload.provider==='ollama'?'Ranking with the configured local model…':'Ranking with transcript rules…';
+    status.textContent=payload.allow_cloud?'Ranking excerpts with '+rankProviders[payload.provider]+'…':payload.provider==='ollama'?'Ranking with the configured local model…':'Ranking with transcript rules…';
     try {
       const result=await api('/api/ai-clipper/rank',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       if(generation!==sourceGen||String(state.source?.id)!==String(source.id))return;
@@ -245,11 +274,18 @@
     } catch(error) {if(generation===sourceGen)status.textContent='Ranking did not finish: '+error.message;}
     finally {if(generation===sourceGen){rankInProgress=false;update();}}
   });
-  sourceMode.addEventListener('change',update);
-  textarea.addEventListener('input',update);
+  sourceMode.addEventListener('change',()=>{
+    transcriptionConsent.check.checked=false;rankingConsent.check.checked=false;whisperActive=false;
+    whisperSelect.replaceChildren(new Option('No saved transcript',''));update();transcripts();
+  });
+  method.addEventListener('change',()=>{rankingConsent.check.checked=false;update();});
+  rankingConsent.check.addEventListener('change',update);
+  transcriptionConsent.check.addEventListener('change',update);
+  whisperSelect.addEventListener('change',()=>{rankingConsent.check.checked=false;update();});
+  textarea.addEventListener('input',()=>{rankingConsent.check.checked=false;update();});
   refresh.addEventListener('click',()=>{providers().then(transcripts);});
   document.addEventListener('sheesh-source',onSource);
-  setInterval(()=>{if(!root.closest('[hidden]')&&state.source&&sourceMode.value==='whisper')transcripts();},4000);
+  setInterval(()=>{if(!root.closest('[hidden]')&&state.source&&sourceMode.value!=='paste')transcripts();},4000);
   providers().then(()=>{if(!sourceGen)onSource();else transcripts();});
   update();
 })();

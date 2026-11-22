@@ -92,6 +92,25 @@ class AnalysisTest(unittest.TestCase):
             score.assert_not_called()
             whisper.assert_called_once()
 
+    def test_assemblyai_transcript_only_requires_consent_and_saves_no_drafts(self):
+        with patch.dict(os.environ, ASSEMBLYAI_API_KEY="fake-assembly-key"), patch.object(
+            analysis, "assembly_captions", return_value=[{"start": 2, "end": 4, "text": "Only a transcript"}]
+        ) as cloud, patch.object(analysis, "audio_activity") as score:
+            req = {"source_id": self.source_id, "provider": "assemblyai", "transcript_only": True}
+            self.assertEqual(400, self.client.post("/api/analysis", json=req).status_code)
+            self.assertEqual(422, self.client.post("/api/analysis", json={**req, "allow_cloud": "true"}).status_code)
+            cloud.assert_not_called()
+            response = self.client.post("/api/analysis", json={**req, "allow_cloud": True})
+            self.assertEqual(202, response.status_code, response.text)
+            job = self.ready(response.json()["id"])
+            self.assertEqual("completed", job["status"], job)
+            self.assertEqual("Only a transcript", job["captions"][0]["text"])
+            self.assertEqual([], job["suggestions"])
+            self.assertEqual([], self.drafts)
+            score.assert_not_called()
+            cloud.assert_called_once()
+            self.assertEqual(".flac", cloud.call_args.args[0].suffix)
+
     def test_cloud_consent_busy_and_captions_scope(self):
         with patch.dict(os.environ, ASSEMBLYAI_API_KEY="not-a-real-key"):
             self.assertTrue(self.client.get("/api/analysis/providers").json()["assemblyai"]["available"])

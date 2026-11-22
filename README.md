@@ -27,14 +27,16 @@ Queued imports are processed while the app is running. If Docker stops before a 
 ## AI Clipper and editor defaults
 
 1. Import your footage and select its source. Open **AI Clipper**.
-2. Reuse an existing local Whisper transcript, create a transcript without rendering drafts, or paste timestamped WebVTT/SRT. Times are relative to the selected file or saved live chunk.
+2. Reuse a saved Whisper or AssemblyAI transcript, create one without rendering drafts, or paste timestamped WebVTT/SRT. AssemblyAI requires per-run consent to send audio. Times are relative to the selected file or saved live chunk.
 3. Set the number and length of picks. Optionally restrict the search to a time range. **Transcript rules** needs no key and ranks spoken cues, not visual gameplay.
 4. Rank the transcript, review the quoted evidence and why it was picked, then edit the title and start/end. **Open in Editor** only loads an editable trim; it never exports.
 5. In the editor use **Trim**, **Frame**, **Captions**, and **Export**. Caption presets are Clean, Bold, and Minimal. Toggle burn-in explicitly after loading captions from Highlights. Save new-edit defaults under **Settings**; defaults do not change saved render recipes.
 
+**Choose OpenRouter or NVIDIA instead of installing Ollama.** In your existing local `.env` set one or both key/model pairs: `OPENROUTER_API_KEY` + `OPENROUTER_MODEL`, or `NVIDIA_API_KEY` + `NVIDIA_MODEL`. Choose a text chat model ID from the [OpenRouter catalog](https://openrouter.ai/models) or [NVIDIA NIM chat docs](https://docs.api.nvidia.com/nim/reference/llm-apis) that your account can use. Run `runme.bat` again to apply the settings. Select the provider in AI Clipper and consent for that run. The selected provider receives shortlisted transcript excerpts, not the media file; the provider may charge for use. OpenRouter routes requests to an underlying model provider. There is no automatic cloud fallback. Keys stay on the server and must not be committed or pasted into chat.
+
 **Optional local AI with Ollama.** Ollama is a separate program, not included with Clipper. On the machine running Ollama, install a recent version, preload a local model, and set `OLLAMA_NO_CLOUD=1` before restarting Ollama. Configure `SHEESH_OLLAMA_URL` and `SHEESH_OLLAMA_MODEL` in Clipper's local `.env` (see `.env.example`); use a verified, trusted local Ollama server, not a LAN or public service. On Docker Desktop the host URL is usually `http://host.docker.internal:11434`. Restart Clipper via `runme.bat`, then choose **Ollama (local AI)**. If the service cannot verify local-only mode or the model is missing, transcript rules are still available. Don't expose Ollama to your network to fix connectivity.
 
-No external AI service is called by AI Clipper. The app supplies fixed, source-based candidates to local Ollama, then checks selected IDs and quotes. Both modes can miss strong moments, particularly when the footage has no useful dialogue. **Highlights** remains the better first pass for visual or audio-only action.
+Transcript rules runs locally and needs no key. Model-based ranking uses fixed, source-based candidates and checks selected IDs and quotes. All transcript modes can miss strong moments, particularly when the footage has no useful dialogue. The YouTube Data API key is not used by this release. Public ingest uses yt-dlp; official YouTube chat scoring is not connected. **Highlights** remains the better first pass for visual or audio-only action.
 
 ## Privacy and providers
 

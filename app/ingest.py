@@ -196,7 +196,8 @@ def segmenter(folder, seconds=SEGMENT_SECONDS):
 
 def spawn(args, **kwargs):
     # Optional provider secrets do not belong in downloader/encoder children.
-    env = {key: value for key, value in os.environ.items() if key != "ASSEMBLYAI_API_KEY"}
+    private_keys = {"ASSEMBLYAI_API_KEY", "OPENROUTER_API_KEY", "NVIDIA_API_KEY", "YOUTUBE_API_KEY"}
+    env = {key: value for key, value in os.environ.items() if key not in private_keys}
     return subprocess.Popen(args, shell=False, start_new_session=(os.name == "posix"), env=env, **kwargs)
 
 
