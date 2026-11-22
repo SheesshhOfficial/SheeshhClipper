@@ -4,7 +4,7 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {readFileSync} = require('node:fs');
 const vm = require('node:vm');
-const ids = ['import-workspace', 'analysis-workspace', 'editor-workspace', 'export-workspace'];
+const ids = ['import-workspace', 'analysis-workspace', 'editor-workspace', 'export-workspace', 'projects-workspace', 'project-workspace'];
 
 function boot(hash = '') {
   const loc = {hash}, headings = {}, scrolls = [], events = {};
@@ -28,12 +28,12 @@ function boot(hash = '') {
   const replacements = [];
   const context=vm.createContext({
     document:{querySelectorAll:s=>s==='.workspace-pane'?panes:links, querySelector:()=>skip, getElementById:id=>headings[id]||(id==='workspace'?main:null)},
-    location:loc, history:{pushState(_,__,next){replacements.push(next);loc.hash=next;}},
+    URLSearchParams, location:loc, history:{pushState(_,__,next){replacements.push(next);loc.hash=next;}},
     window:{scrollTo(...args){scrolls.push(args);}, addEventListener(k,fn){events[k]=fn;}}
   });
   vm.runInContext(readFileSync(new URL('../app/static/workspace.js','file://'+__filename),'utf8'),context);
   const active=()=>panes.filter(p=>!p.hidden).map(p=>p.id);
-  return {main, active, links, panes, skip, loc, events, replacements, scrolls};
+  return {run:code=>vm.runInContext(code,context),main, active, links, panes, skip, loc, events, replacements, scrolls};
 }
 const click = (el, props={})=>{
   let prevented=false;
@@ -65,4 +65,17 @@ test('skip links keep the view active and modified clicks retain link behavior',
   assert.equal(b.main.focused,true);
   assert.deepEqual(b.active(),[ids[1]]);
   assert.deepEqual(boot('#invalid').active(),[ids[0]]);
+});
+
+test('project keys survive navigation and history without replacing an edit', () => {
+  const b=boot('#project-workspace?key=youtube%3AAbCdEfGhIJK');
+  assert.deepEqual(b.active(),['project-workspace']);
+  assert.equal(b.links[4].attrs['aria-current'],'page');
+  b.run("workspace.open('editor-workspace')");
+  assert.equal(b.loc.hash,'#editor-workspace?key=youtube%3AAbCdEfGhIJK');
+  b.run("workspace.open('export-workspace')");
+  assert.equal(b.loc.hash,'#export-workspace?key=youtube%3AAbCdEfGhIJK');
+  b.loc.hash='#project-workspace?key=youtube%3AAbCdEfGhIJK'; b.events.hashchange();
+  assert.equal(b.run('workspace.route().key'),'youtube:AbCdEfGhIJK');
+  click(b.links[4]); assert.equal(b.run('workspace.route().key'),null);
 });

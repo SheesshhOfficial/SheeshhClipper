@@ -11,13 +11,6 @@ const clamp = (n,min=0,max=1) => Math.max(min,Math.min(max,n));
 const fmt = n => {const v = Math.max(0,Math.floor(n || 0)); return String(Math.floor(v/60)).padStart(2,'0') + ':' + String(v%60).padStart(2,'0');};
 let noticeTimer;
 let titleLookupRunning=false;
-function updateTitleControl() {
-  const button=$('fetch-source-title');
-  const selected=state.source;
-  button.hidden=!selected?.youtube_video_id || Boolean(selected.youtube_title);
-  button.disabled=titleLookupRunning;
-  button.textContent=titleLookupRunning?'Looking up title…':'Get YouTube title';
-}
 function announce(text, error=false, persistent=false) {
   const notice=$('notice');
   clearTimeout(noticeTimer);
@@ -65,7 +58,7 @@ function updateControls() {
   $('pip-controls').hidden=$('layout').value!=='pip';
   $('add-cut').disabled=!has;
   $('add-layout').disabled=!canPlay||!valid||!faceValid;
-  $('import-button').disabled=state.busy; $('source').disabled=state.busy||state.sources.length===0;
+  $('import-button').disabled=state.busy;
   const t=video.currentTime || 0;
   $('play-time').textContent=fmt(t)+' / '+fmt(dur);
   $('seek').value=String(t);
@@ -137,13 +130,11 @@ function loadSource(id) {
   const hit = state.sources.find(s=>String(s.id)===String(id));
   if(!hit) return;
   state.source = hit;
-  updateTitleControl();
   const defaults=editorDefaults.read();
   for(const [id,value] of [['aspect',defaults.aspect],['layout',defaults.layout],['caption-style',defaults.caption],['export-profile',defaults.profile],['clip-title',''],['focus-x','.5'],['focus-y','.5']]){
     $(id).value=value;
   }
   state.playEdit=false;
-  $('source').value = String(hit.id);
   video.pause();
   video.src=hit.url; video.load();
   $('start').value='0'; $('end').value=String(hit.duration);
@@ -161,62 +152,42 @@ function loadSource(id) {
 }
 async function sources(selectId, preserve=false) {
   state.sources=await api('/api/sources');
-  const desired = [selectId,state.source?.id,state.sources[0]?.id]
+  const route=workspace.route();
+  const legacyTool=!route.key&&['editor-workspace','analysis-workspace','ai-clipper-workspace'].includes(route.id);
+  const desired = [selectId,state.source?.id,legacyTool?state.sources[0]?.id:null]
     .find(id=>id!=null && state.sources.some(row=>String(row.id)===String(id)));
-  paintSourcePicker(desired);
   if (desired) {
     if(preserve && state.source && String(state.source.id)===String(desired)) {
       const refreshed=state.sources.find(s=>String(s.id)===String(desired));
       if(refreshed)state.source=refreshed;
     } else loadSource(desired);
   } else state.source=null;
-  updateTitleControl();
   updateControls();
   visibleGallery();
+  document.dispatchEvent(new CustomEvent('sheesh-sources-updated',{detail:state.sources}));
 }
-function paintSourcePicker(desired) {
-  $('source').replaceChildren();
-  if(!state.sources.length){
-    $('source').append(new Option('No sources yet',''));
-  }
-  const projects=sourceProjects(state.sources);
-  const labels=sourceOptionLabels(state.sources,projects);
-  const grouped=new Map();
-  for(const x of state.sources){
-    const project=projects.get(x.id), option=new Option(labels.get(x.id),String(x.id));
-    if(!x.youtube_video_id){$('source').append(option);continue;}
-    if(!grouped.has(project.key)){
-      const group=document.createElement('optgroup');group.label=project.label;
-      grouped.set(project.key,group);$('source').append(group);
-    }
-    grouped.get(project.key).append(option);
-  }
-  if(desired)$('source').value=String(desired);
-}
-$('fetch-source-title').addEventListener('click',async()=>{
-  const selected=state.source, trigger=$('fetch-source-title');
-  if(!selected?.youtube_video_id||titleLookupRunning)return;
-  const returnFocus=document.activeElement===trigger;
-  titleLookupRunning=true;updateTitleControl();
+async function fetchYouTubeTitle(sourceId) {
+  const selected=state.sources.find(s=>String(s.id)===String(sourceId));
+  if(!selected?.youtube_video_id||titleLookupRunning)return false;
+  titleLookupRunning=true;
   try {
     const result=await api('/api/sources/'+encodeURIComponent(selected.id)+'/youtube-title',{method:'POST'});
     for (const source of state.sources) {
       if(source.youtube_video_id===result.youtube_video_id)source.youtube_title=result.youtube_title;
     }
     if(state.source?.youtube_video_id===result.youtube_video_id)state.source.youtube_title=result.youtube_title;
-    paintSourcePicker(state.source?.id);
-    updateTitleControl();
     visibleGallery();
-    if(returnFocus && trigger.hidden && document.activeElement===document.body)$('source').focus();
     document.dispatchEvent(new CustomEvent('sheesh-source-metadata'));
     announce('YouTube title saved. Your footage and edits are unchanged.');
-  } catch(e){announce(e.message,true);}
-  finally {titleLookupRunning=false;updateTitleControl();}
-});
+    return true;
+  } catch(e){announce(e.message,true);return false;}
+  finally {titleLookupRunning=false;}
+}
 function safeArtifact(p) {
   try {const u=new URL(p,location.href); return u.origin===location.origin?u.href:null;} catch(_){return null;}
 }
-let artifactItems=[], artifactRequest=0, lastGalleryView='';
+let artifactItems=[], artifactRequest=0;
+const galleryViews=new WeakMap();
 function readableSize(bytes) {
   if(!Number.isFinite(bytes)||bytes<=0)return '';
   return bytes>=1048576?(bytes/1048576).toFixed(1)+' MB':Math.max(1,Math.round(bytes/1024))+' KB';
@@ -225,14 +196,24 @@ function visibleGallery() {
   const filter=$('artifact-filter')?.value || 'all';
   const query=$('artifact-search').value.trim();
   const projects=sourceProjects(state.sources);
-  const selected=findProjectClips(artifactItems,projects,filter,query);
+  const current=workspace.route();
+  const key=current.id==='export-workspace'?current.key:null;
+  const scoped=projectKey=>projectKey?artifactItems.filter(item=>projects.get(item.source_id)?.key===projectKey):artifactItems;
+  renderClipWall($('artifacts'),$('artifact-count'),scoped(key),projects,filter,query,false);
+  if(current.id==='project-workspace' && $('project-clips')) {
+    const items=current.key?scoped(current.key):[];
+    renderClipWall($('project-clips'),$('project-clip-count'),items,projects,'all','',true);
+  }
+}
+function renderClipWall(host,count,items,projects,filter,query,compact) {
+  const selected=findProjectClips(items,projects,filter,query);
   const groups=collectProjects(selected,projects);
-  const key=JSON.stringify([filter,query,artifactItems.length,groups]);
-  if(key===lastGalleryView)return;
-  lastGalleryView=key;
-  const host=$('artifacts');host.replaceChildren();
-  const count=$('artifact-count');
-  if(count)count.textContent=filter==='all'&&!query?artifactItems.length+' saved':selected.length+' of '+artifactItems.length+' saved';
+  const key=JSON.stringify([filter,query,items.length,groups]);
+  if(key===galleryViews.get(host))return;
+  galleryViews.set(host,key);
+  for(const v of host.querySelectorAll('video'))v.pause();
+  host.replaceChildren();
+  if(count)count.textContent=filter==='all'&&!query?items.length+' saved':selected.length+' of '+items.length+' saved';
   if(!selected.length){
     const p=document.createElement('p');p.className='artifact-empty muted';
     p.textContent=query?'No saved clips match your search. Try a project name or clear the search.':filter==='draft'?'No drafts yet. Analyze a source or save a draft from the editor.':filter==='export'?'No exports yet. Export a finished clip from the editor.':'Your drafts and exports will appear here.';
@@ -244,7 +225,9 @@ function visibleGallery() {
     const summary=document.createElement('p');summary.className='panel-note';
     summary.textContent=items.length+' clip'+(items.length===1?'':'s');
     const tiles=document.createElement('div');tiles.className='artifact-grid';
-    group.append(title,summary,tiles);host.append(group);
+    if(compact)group.append(tiles);
+    else group.append(title,summary,tiles);
+    host.append(group);
     for(const item of items) {
       const url=safeArtifact(item.url);if(!url)continue;
       const card=document.createElement('article');card.className='artifact';
@@ -266,6 +249,7 @@ async function artifacts() {
   const list=await api('/api/artifacts');
   if(request!==artifactRequest)return;
   artifactItems=list;visibleGallery();
+  document.dispatchEvent(new CustomEvent('sheesh-artifacts-updated',{detail:list}));
 }
 async function restoreEdit(id,button) {
   if(state.busy)return;
@@ -273,8 +257,10 @@ async function restoreEdit(id,button) {
   const revision=workspace.revision();
   try {
     const item=await api('/api/artifacts/'+encodeURIComponent(id)), edit=item.edit;
+    if(workspace.revision()!==revision)return;
     if(!edit)throw new Error('This artifact has no saved edit.');
-    if(!state.sources.some(s=>String(s.id)===String(edit.source_id)))await sources(edit.source_id);
+    if(!state.sources.some(s=>String(s.id)===String(edit.source_id)))await sources(undefined,true);
+    if(workspace.revision()!==revision)return;
     if(!state.sources.some(s=>String(s.id)===String(edit.source_id)))throw new Error('The original source is unavailable.');
     loadSource(edit.source_id);
     for(const key of ['start','end','aspect','layout'])$(key).value=String(edit[key]);
@@ -290,7 +276,7 @@ async function restoreEdit(id,button) {
     document.dispatchEvent(new CustomEvent('sheesh-edit-restored',{detail:edit}));
     setFace(edit.facecam||null);paint();
     announce('Edit restored. The saved artifact was not changed.');
-    if(workspace.revision()===revision){editorTabs.open('trim');workspace.open('editor-workspace','preview-title');}
+    if(workspace.revision()===revision){editorTabs.open('trim');workspace.open('editor-workspace','preview-title',state.source.project_key);}
   }catch(e){announce(e.message,true);}finally{state.busy=false;button.disabled=false;updateControls();}
 }
 function drawFit(sx,sy,sw,sh,dx,dy,dw,dh) {
@@ -414,7 +400,6 @@ $('play-edit').addEventListener('click',()=>{
 $('seek').addEventListener('input',()=>{state.playEdit=false;video.currentTime=value('seek');updateControls();});
 $('start-here').addEventListener('click',()=>{$('start').value=String(Math.min(video.currentTime,state.source.duration).toFixed(2));updateControls();});
 $('end-here').addEventListener('click',()=>{$('end').value=String(Math.min(Number(video.currentTime.toFixed(2)),state.source.duration));updateControls();});
-$('source').addEventListener('change',()=>loadSource($('source').value));
 document.addEventListener('sheesh-ai-open',event=>{
   const {source_id,start,end,title}=event.detail||{};
   if(state.busy||String(state.source?.id)!==String(source_id)||!Number.isFinite(start)||!Number.isFinite(end)||
@@ -441,9 +426,14 @@ async function importLocalFile(f){
   if(state.busy){announce('Wait for the current editor action to finish before importing.');return;}
   state.busy=true;updateControls();announce('Importing '+f.name+'…',false,true);
   const body=new FormData();body.append('file',f);
+  const revision=workspace.revision();
   if($('auto-analyze').checked)body.append('auto_analyze','true');
   try{
-    const newSource=await api('/api/sources',{method:'POST',body});await sources(newSource.id);
+    const newSource=await api('/api/sources',{method:'POST',body});
+    if(workspace.revision()===revision) {
+      await sources(newSource.id);
+      if(workspace.revision()===revision)workspace.open('project-workspace','',newSource.project_key||'local:'+newSource.id);
+    } else await sources(undefined,true);
     announce(newSource.analysis_id?'Source imported. Local highlight analysis queued.':newSource.analysis_note?'Source imported. '+newSource.analysis_note:'Source imported.');
   }
   catch(e){announce(e.message,true);} finally{state.busy=false;updateControls();}
@@ -477,6 +467,17 @@ async function render(kind){
 $('draft').addEventListener('click',()=>render('draft'));$('export').addEventListener('click',()=>render('export'));
 $('artifact-filter')?.addEventListener('change',visibleGallery);
 $('artifact-search').addEventListener('input',visibleGallery);
+function updateProjectContext({id,key}) {
+  const link=$('context-project-link');
+  if(link){
+    link.hidden=key?id==='project-workspace':id!=='export-workspace';
+    link.href=key?'#project-workspace?key='+encodeURIComponent(key):'#projects-workspace';
+    link.textContent=key?'← Project overview':'← My Projects';
+  }
+  visibleGallery();
+}
+workspace.subscribe(updateProjectContext);
+updateProjectContext(workspace.route());
 $('export-profile').addEventListener('change',updateControls);
 $('refresh').addEventListener('click',()=>artifacts().catch(e=>announce(e.message,true)));
 Promise.allSettled([sources(),artifacts()]).then(results=>{for(const r of results)if(r.status==='rejected')announce(r.reason.message,true);});

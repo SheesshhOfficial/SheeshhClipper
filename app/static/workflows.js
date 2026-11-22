@@ -6,6 +6,7 @@ let ingestReading=false, ingestSending=false, ingestFirst=true, analysisSending=
 const knownSources = new Set();
 let analysisProviders = null, analysisGeneration=0, analysisJobs=[], activeCaption=null;
 let lastAnalysisHash='', lastIngestHash='', ingestPollFailed=false;
+let currentIngestJobs=[];
 const stoppingIngest = new Set();
 const statusLabel = {queued:'Queued', running:'In progress', stopping:'Finishing', completed:'Ready', stopped:'Stopped', failed:'Needs attention'};
 function node(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
@@ -38,9 +39,11 @@ async function openIngestSource(sourceId){
   if(state.busy){announce('Wait for the current editor action to finish before switching sources.');return;}
   try{
     const revision = workspace.revision();
-    await sources(sourceId);
+    await sources(undefined,true);
+    if(workspace.revision()!==revision)return;
+    if(String(state.source?.id)!==String(sourceId))loadSource(sourceId);
     if(String(state.source?.id)!==String(sourceId))throw new Error('The saved source is not available yet.');
-    if (workspace.revision()===revision) workspace.open('editor-workspace','preview-title');
+    if (workspace.revision()===revision) workspace.open('editor-workspace','preview-title',state.source.project_key);
     announce('Imported source opened. Set the trim and frame before exporting.');
   }catch(e){announce('Could not open the source: '+e.message,true);}
 }
@@ -52,10 +55,16 @@ function ingestMode(){
 }
 $('ingest-kind').addEventListener('change',ingestMode);
 function paintIngest(jobs) {
-  const hash=JSON.stringify(jobs);if(hash===lastIngestHash)return;lastIngestHash=hash;
+  const route=workspace.route();
+  const projectJobs=route.id==='project-workspace' && route.key ? jobs.filter(j=>ingestProjectKey(j)===route.key) : [];
+  const panel=$('project-processing');
+  if(panel)panel.hidden=!projectJobs.length;
+  const hash=JSON.stringify([route.id,route.key,projectJobs,ingestPollFailed]);
+  if(hash===lastIngestHash)return;lastIngestHash=hash;
   const host=$('ingest-jobs'), focus=saveWorkflowFocus(host);host.replaceChildren();
-  if(!jobs.length){host.append(node('p','YouTube import jobs will appear here. Local MP4s are available in the active source menu.','hint workflow-empty'));return;}
-  const visible=[...jobs.filter(j=>activeIngest.has(j.status)),...jobs.filter(j=>!activeIngest.has(j.status))].slice(0,10);
+  if(!projectJobs.length)return;
+  if(ingestPollFailed)host.append(node('p','Status is temporarily unavailable. Retrying automatically.','hint workflow-empty'));
+  const visible=[...projectJobs.filter(j=>activeIngest.has(j.status)),...projectJobs.filter(j=>!activeIngest.has(j.status))];
   for(const j of visible){
     const ready=(j.outputs||[]).filter(o=>o.source_id);
     const isLive=j.kind==='live', videoId=new URLSearchParams((j.url||'').split('?')[1]||'').get('v');
@@ -90,6 +99,11 @@ function paintIngest(jobs) {
   }
   restoreWorkflowFocus(host,focus);
 }
+function receiveIngestJobs(jobs) {
+  currentIngestJobs=jobs;
+  paintIngest(jobs);
+  document.dispatchEvent(new CustomEvent('sheesh-ingest-updated',{detail:jobs}));
+}
 async function refreshIngest(report=false){
   if(ingestReading)return;ingestReading=true;
   try{
@@ -101,9 +115,9 @@ async function refreshIngest(report=false){
     if(unseen&&!ingestFirst&&!state.busy)await sources(undefined,true);
     if(!state.busy||ingestFirst)visible.forEach(id=>knownSources.add(id));
     ingestFirst=false;
-    paintIngest(jobs);
+    receiveIngestJobs(jobs);
   }catch(e){
-    if(!ingestPollFailed){$('ingest-jobs').prepend(node('p','Import status is temporarily unavailable. Retrying automatically.','hint workflow-empty'));ingestPollFailed=true;}
+    if(!ingestPollFailed){ingestPollFailed=true;paintIngest(currentIngestJobs);}
     if(report)announce('Could not refresh import status: '+e.message,true);
   }finally{ingestReading=false;}
 }
@@ -115,7 +129,15 @@ $('ingest-form').addEventListener('submit',async e=>{
   if(parsed.protocol!=='https:'||!['youtube.com','www.youtube.com','m.youtube.com','youtu.be'].includes(parsed.hostname)){announce('Enter a public HTTPS YouTube video or livestream link.',true);return;}
   ingestSending=true;$('ingest-submit').disabled=true;
   const payload={url,kind,auto_analyze:$('auto-analyze').checked};
-  try{await post('/api/ingest',payload);announce(kind==='live'?'Live capture queued.':'VOD download queued.');await refreshIngest(true);}
+  const revision=workspace.revision();
+  try{
+    const job=await post('/api/ingest',payload);
+    if(!currentIngestJobs.some(row=>row.id===job.id))receiveIngestJobs([job,...currentIngestJobs]);
+    const key=ingestProjectKey(job);
+    if(key&&workspace.revision()===revision)workspace.open('project-workspace','',key);
+    announce(kind==='live'?'Live capture queued.':'VOD download queued.');
+    await refreshIngest(true);
+  }
   catch(e){announce(e.message,true);}finally{ingestSending=false;$('ingest-submit').disabled=false;}
 });
 function analysisStatus(text){
@@ -294,5 +316,6 @@ document.addEventListener('sheesh-preview',e=>{
 });
 for(const id of ['start','end'])$(id).addEventListener('change',refreshCaptionView);
 for(const id of ['start-here','end-here'])$(id).addEventListener('click',refreshCaptionView);
+workspace.subscribe(()=>paintIngest(currentIngestJobs));
 refreshProviders();refreshIngest();analysisControl();
 setInterval(()=>{if(document.visibilityState!=='hidden'){refreshIngest();refreshAnalysis();}},2500);

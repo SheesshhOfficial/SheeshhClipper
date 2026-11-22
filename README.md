@@ -12,9 +12,11 @@ The first build installs FFmpeg and the other dependencies; that can take severa
 
 ## How to make a clip
 
-The dark workspace separates **Sources**, **Highlights**, **AI Clipper**, **Editor**, **Saved clips**, and **Settings**. The source picker stays available across the views. Changing views does not reset your trim or framing. Saved clips are grouped by project. Re-imports and live chunks for the same YouTube video share a project, and each local upload keeps its own group. Older clips are grouped from saved metadata when available. Existing media files stay where they are. The layout takes inspiration from [SupoClip’s app guide](https://github.com/FujiwaraChoki/supoclip/blob/main/docs/app-guide.md), not its code.
+The dark studio is organized around **Home**, **My Projects**, and **Settings**, following the workflow described in [SupoClip’s app guide](https://github.com/FujiwaraChoki/supoclip/blob/main/docs/app-guide.md). Start a project on Home. Open a project in My Projects to see its processing status, footage, and clip previews together. Choose a recording or live chunk there before opening Highlights, AI Clipper, or the Editor. There is no global source picker or standalone import activity. The project overview link returns to the same project. Browsing views does not reset an edit for the same recording.
 
-New YouTube imports show the actual video title when YouTube returns it. For an older source still labeled by video ID, select it under **Active source** and click **Get YouTube title**. This fetches only the public title, without an API key or a second video download, and does not change any footage or edits. If YouTube no longer provides the title, the ID remains visible.
+Re-imports and live chunks for the same YouTube video share a project, and each local upload keeps its own group. Restoring a clip uses its exact original recording. Older unlinked clips remain accessible via **My Projects → All saved clips**. No media, saved renders, or edit files are moved.
+
+New YouTube imports show the actual video title when YouTube returns it. For an older project still labeled by video ID, open it from **My Projects** and click **Get YouTube title** beside Project footage. This fetches only public metadata without an API key or a second video download. If YouTube no longer provides the title, the ID remains visible.
 
 | Step | What to do |
 | --- | --- |

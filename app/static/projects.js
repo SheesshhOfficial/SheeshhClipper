@@ -1,6 +1,12 @@
 'use strict';
 
 // Project identity comes from the source API, not from a filename or pasted URL.
+function ingestProjectKey(job) {
+  const id = typeof job.youtube_video_id==='string' && /^[A-Za-z0-9_-]{11}$/.test(job.youtube_video_id)
+    ? job.youtube_video_id : /^https:\/\/www\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{11})$/.exec(job.url || '')?.[1];
+  return id ? 'youtube:' + id : null;
+}
+
 function sourceProjects(sources) {
   const titles = new Map();
   for (const source of sources) {

@@ -15,6 +15,7 @@
 <script defer src="/static/editor-shortcuts.js"></script>
 <script defer src="/static/workflows.js"></script>
 <script defer src="/static/ai-clipper-ui.js"></script>
+<script defer src="/static/project-workspace.js"></script>
 </head>
 <body>
 <a class="skip-link" href="#workspace">Skip to workspace</a>
@@ -32,57 +33,80 @@
 <nav class="workflow" aria-label="Studio views">
   <p class="nav-label">WORKSPACE</p>
   <ol>
-    <li><a href="#import-workspace" data-workspace-link><span class="step-number" aria-hidden="true">01</span><span><strong>Sources</strong><small>Import &amp; capture</small></span></a></li>
-    <li><a href="#analysis-workspace" data-workspace-link><span class="step-number" aria-hidden="true">02</span><span><strong>Highlights</strong><small>Suggestions &amp; captions</small></span></a></li>
-    <li><a href="#ai-clipper-workspace" data-workspace-link><span class="step-number" aria-hidden="true">AI</span><span><strong>AI Clipper</strong><small>Transcript picks</small></span></a></li>
-    <li><a href="#editor-workspace" data-workspace-link><span class="step-number" aria-hidden="true">03</span><span><strong>Editor</strong><small>Trim &amp; frame</small></span></a></li>
-    <li><a href="#export-workspace" data-workspace-link><span class="step-number" aria-hidden="true">04</span><span><strong>Saved clips</strong><small>Drafts &amp; exports</small></span></a></li>
+    <li><a href="#import-workspace" data-workspace-link><span class="step-number" aria-hidden="true">⌂</span><span><strong>Home</strong><small>Start a project</small></span></a></li>
+    <li><a href="#projects-workspace" data-workspace-link><span class="step-number" aria-hidden="true">▤</span><span><strong>My Projects</strong><small>Sources and clips</small></span></a></li>
     <li><a href="#settings-workspace" data-workspace-link><span class="step-number" aria-hidden="true">⚙</span><span><strong>Settings</strong><small>Editor defaults</small></span></a></li>
   </ol>
-  <p class="nav-footer">Manual export only.<br>No automatic posting.</p>
+  <p class="nav-footer"><span class="local-mark"></span> LOCAL STUDIO<br><small>Manual exports. No automatic posting.</small></p>
 </nav>
 <div class="workspace-content">
-  <div class="source-bar">
-    <label for="source">Active source</label>
-    <select id="source"><option value="">No sources yet</option></select>
-    <button id="fetch-source-title" class="lite" type="button" hidden title="Look up the public title without downloading the video">Get YouTube title</button>
-  </div>
-<section id="import-workspace" class="workspace-pane" aria-labelledby="ingest-title">
-  <div class="view-heading"><div class="eyebrow">01 / SOURCES</div><h1 id="ingest-title" tabindex="-1">Bring in footage</h1><p>Upload an MP4, import a YouTube video, or capture a live stream.</p></div>
-  <div id="auto-analyze-row" class="source-auto">
-    <label><input id="auto-analyze" type="checkbox" aria-describedby="source-auto-hint"> Automatically find highlights</label>
-    <p id="source-auto-hint" class="hint">Set before importing. Prepares drafts for review without exporting. MP4 and VOD use audio and motion; live chunks use audio and skip analysis if the worker is busy.</p>
-  </div>
-  <div class="import-grid">
-    <section id="file-drop" class="surface import-card" aria-labelledby="file-title">
+  <a id="context-project-link" class="context-project-link" href="#project-workspace" data-workspace-link hidden>← Project overview</a>
+<section id="import-workspace" class="workspace-pane home-workspace" aria-labelledby="ingest-title">
+  <div class="view-heading home-heading"><div class="eyebrow">SHEESHHCLIPPER STUDIO</div><h1 id="ingest-title" tabindex="-1">Make more of your footage.</h1><p>Start with a video link or a local MP4. Turn it into clips you can review, edit, and export.</p></div>
+  <section class="surface home-composer" aria-label="New project">
+    <div class="composer-heading"><div><p class="eyebrow">NEW PROJECT</p><h2>Bring in a video</h2></div><span class="composer-tag">Local workspace</span></div>
+    <form id="ingest-form" class="ingest-form home-ingest">
+      <label class="composer-url">YouTube link<input id="ingest-url" class="number" type="url" required placeholder="Paste a public YouTube link"></label>
+      <label class="composer-type">Input type<select id="ingest-kind"><option value="vod">YouTube video</option><option value="live">Live capture</option></select></label>
+      <button type="submit" id="ingest-submit" class="primary">Download VOD</button>
+    </form>
+    <p class="hint composer-note" id="ingest-hint">Download a video you own or have permission to use. The original stays on this machine.</p>
+    <section id="file-drop" class="composer-drop" aria-labelledby="file-title">
       <span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m-4 4 4-4 4 4M5 15v5h14v-5"/></svg></span>
-      <h2 id="file-title">Local file</h2><p class="panel-note">Drop an MP4 here or choose one from this computer. Your original stays untouched.</p>
-      <div class="source-upload"><button id="import-button" type="button" class="primary">Import video</button><input id="import-file" type="file" accept="video/mp4,.mp4" hidden></div>
+      <div><h2 id="file-title">Or upload a local MP4</h2><p class="panel-note">Drop a video here, or select one from your device.</p></div>
+      <div class="source-upload"><button id="import-button" type="button" class="lite">Choose file</button><input id="import-file" type="file" accept="video/mp4,.mp4" hidden></div>
     </section>
-    <section class="surface import-card" aria-labelledby="youtube-title">
-      <span class="card-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="m10 9 5 3-5 3z"/></svg></span>
-      <h2 id="youtube-title">YouTube</h2><p class="panel-note">Paste a public link you have permission to use.</p>
-      <form id="ingest-form" class="ingest-form">
-        <label>Capture type<select id="ingest-kind"><option value="vod">YouTube VOD</option><option value="live">Live capture</option></select></label>
-        <label>Video address<input id="ingest-url" class="number" type="url" required placeholder="https://www.youtube.com/watch?v=…"></label>
-        <button type="submit" id="ingest-submit" class="primary">Download VOD</button>
-      </form>
-      <p class="hint" id="ingest-hint">Download a video you own or have permission to use. The original stays on this machine.</p>
-    </section>
-  </div>
-  <section class="surface ingest" aria-labelledby="activity-title">
-    <div class="panel-top"><div><h2 id="activity-title">Import activity</h2><p class="panel-note">Track YouTube downloads and open finished live chunks.</p></div><a class="lite" href="#editor-workspace" data-workspace-link>Go to editor <span aria-hidden="true">→</span></a></div>
-    <div id="ingest-jobs" class="stack"></div>
+    <div id="auto-analyze-row" class="source-auto composer-options">
+      <label><input id="auto-analyze" type="checkbox" aria-describedby="source-auto-hint"> Automatically find highlights</label>
+      <p id="source-auto-hint" class="hint">Prepares drafts for review without exporting. MP4 and VOD use audio and motion; live chunks use audio when the worker is free.</p>
+    </div>
+  </section>
+  <section class="surface recent-projects" aria-labelledby="recent-project-title">
+    <div class="panel-top"><h2 id="recent-project-title">Recent projects</h2><a class="lite" href="#projects-workspace" data-workspace-link>View all projects</a></div>
+    <div id="recent-project-list" class="stack"></div>
   </section>
 </section>
+<section id="projects-workspace" class="workspace-pane projects-workspace" aria-labelledby="projects-title">
+  <div class="view-heading project-page-heading"><div><div class="eyebrow">YOUR LIBRARY</div><h1 id="projects-title" tabindex="-1">My Projects</h1><p>Open a project to review its highlights, edit footage, and find saved clips.</p></div><div class="project-actions"><a class="lite" href="#export-workspace" data-workspace-link>All saved clips</a><a class="primary" href="#import-workspace" data-workspace-link>+ New project</a></div></div>
+  <div class="surface projects-table">
+    <div class="panel-top"><h2>Project library</h2><label class="project-search"><span class="sr">Search projects</span><input id="project-search" class="number" type="search" placeholder="Search projects"></label></div>
+    <div id="project-list" class="stack"><p class="hint">Loading project sources…</p></div>
+  </div>
+</section>
+<section id="project-workspace" class="workspace-pane project-workspace" aria-labelledby="project-title">
+  <div class="project-breadcrumb"><a href="#projects-workspace" data-workspace-link>← My Projects</a></div>
+  <div class="view-heading"><div class="eyebrow">PROJECT OVERVIEW</div><h1 id="project-title" tabindex="-1">Project</h1><p id="project-summary">Open a source from My Projects.</p></div>
+  <div class="surface project-detail">
+    <div class="panel-top"><div><h2>Project actions</h2><p class="panel-note">Review, edit, or return to saved work.</p></div></div>
+    <div class="project-actions">
+      <a id="project-highlights" class="lite" href="#analysis-workspace">Highlights</a>
+      <a id="project-ai" class="lite" href="#ai-clipper-workspace">AI Clipper</a>
+      <a id="project-editor" class="primary" href="#editor-workspace">Open editor</a>
+      <a id="project-saved" class="lite" href="#export-workspace">Saved clips</a>
+    </div>
+  </div>
+  <div class="surface project-detail">
+    <div class="panel-top"><div><h2>Project footage</h2><p class="panel-note">Choose the source video or captured chunk to work on.</p></div><button id="project-fetch-title" type="button" class="lite" hidden>Get YouTube title</button></div>
+    <div id="project-sources" class="stack"></div>
+  </div>
+  <section id="project-processing" class="surface project-detail" aria-labelledby="project-processing-title" hidden>
+    <div class="panel-top"><h2 id="project-processing-title">Processing</h2></div>
+    <div id="ingest-jobs" class="stack"></div>
+  </section>
+  <div class="surface project-detail">
+    <div class="panel-top"><div><h2>Saved clips</h2><p id="project-clip-count" class="panel-note" aria-live="polite"></p></div></div>
+    <details class="project-review"><summary>Before you export</summary><ul><li>Check that the hook makes sense without the full stream and the clip keeps the payoff.</li><li>Watch the preview with sound. Check caption timing, facecam framing, and the safe areas.</li><li>Only share footage and audio you have permission to use.</li></ul></details>
+    <div id="project-clips" class="artifacts"><p class="muted">No clips saved for this project yet.</p></div>
+  </div>
+</section>
 <section id="analysis-workspace" class="workspace-pane" aria-labelledby="analysis-title">
-<div class="view-heading"><div class="eyebrow">02 / HIGHLIGHTS</div><h1 id="analysis-title" tabindex="-1">Find your best moments</h1><p>Review suggested trims and captions for the active source.</p></div>
+<div class="view-heading"><div class="eyebrow">PROJECT / HIGHLIGHTS</div><h1 id="analysis-title" tabindex="-1">Find your best moments</h1><p>Review suggested trims and captions for the selected footage.</p></div>
 <div class="surface analysis">
 <div class="panel-top"><div><h2>Analysis settings</h2><p class="panel-note">Choose which signals to use, then review the results below.</p></div></div>
 <form id="analysis-form" class="ingest-form">
 <label>Language<select id="analysis-language"><option value="english">English</option><option value="hinglish">Hinglish</option></select></label>
 <label>Analysis method<select id="analysis-provider"><option value="audio">Local audio signals · no captions</option><option value="whisper">Local Whisper · captions</option><option value="assemblyai">AssemblyAI · cloud captions</option></select></label>
-<button id="analyze" type="submit" class="primary" disabled>Analyze selected source</button>
+<button id="analyze" type="submit" class="primary" disabled>Analyze project footage</button>
 <label class="check-row"><input id="visual-motion" type="checkbox" aria-describedby="motion-hint"> Include local motion cues</label>
 <label id="analysis-consent-row" class="check-row" hidden><input type="checkbox" id="analysis-consent"> I agree to send this source’s audio to AssemblyAI for transcription.</label>
 </form>
@@ -98,12 +122,12 @@
 <div id="ai-clipper"></div>
 </section>
 <section id="editor-workspace" class="workspace-pane" aria-labelledby="editor-title">
-<div class="view-heading"><div class="eyebrow">03 / EDITOR</div><h1 id="editor-title" tabindex="-1">Make the cut</h1><p>Trim your clip, set the frame, then save a draft or export.</p></div>
+<div class="view-heading"><div class="eyebrow">PROJECT / EDITOR</div><h1 id="editor-title" tabindex="-1">Make the cut</h1><p>Trim your clip, set the frame, then save a draft or export.</p></div>
 <div class="grid">
 <section class="surface stage" aria-labelledby="preview-title">
 <div class="panel-top"><h2 id="preview-title" tabindex="-1">Preview</h2><a class="lite" href="#export-workspace" data-workspace-link>Saved clips <span aria-hidden="true">→</span></a></div>
 <div class="monitor" tabindex="0" role="group" aria-label="Video preview and keyboard controls">
-<div id="empty" class="empty"><span class="empty-icon" aria-hidden="true">▶</span><b>No video loaded</b><p>Pick an active source above or import new footage.</p></div>
+<div id="empty" class="empty"><span class="empty-icon" aria-hidden="true">▶</span><b>No video loaded</b><p>Choose footage in My Projects or import a new video.</p></div>
 <div id="viewport" class="viewport" hidden><canvas id="frame" width="720" height="405" aria-label="Layout preview"></canvas></div>
 </div>
 <video id="video" preload="metadata" playsinline hidden></video>
@@ -182,7 +206,7 @@
 </section>
 
 <section id="export-workspace" class="workspace-pane" aria-labelledby="gallery-title">
-<div class="view-heading"><div class="eyebrow">04 / SAVED CLIPS</div><h1 id="gallery-title" tabindex="-1">Drafts &amp; exports</h1><p>Browse clips by project. Download an MP4 or restore its edit without changing the saved clip.</p></div>
+<div class="view-heading"><div class="eyebrow">PROJECT / SAVED CLIPS</div><h1 id="gallery-title" tabindex="-1">Drafts &amp; exports</h1><p>Browse clips by project. Download an MP4 or restore its edit without changing the saved clip.</p></div>
 <div class="surface gallery">
 <div class="panel-top"><div><h2>Local library</h2><p id="artifact-count" class="artifact-count muted" aria-live="polite"></p></div><div class="gallery-toolbar"><label class="sr" for="artifact-search">Search saved clips</label><input type="search" id="artifact-search" class="number" placeholder="Search saved clips"><label class="sr" for="artifact-filter">Filter saved clips</label><select id="artifact-filter"><option value="all">All clips</option><option value="draft">Drafts</option><option value="export">Exports</option></select><button id="refresh" type="button" class="lite">Refresh</button></div></div>
 <div id="artifacts" class="artifacts"><p class="muted">No drafts or exports yet.</p></div>

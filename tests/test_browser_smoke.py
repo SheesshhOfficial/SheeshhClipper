@@ -59,7 +59,7 @@ def main():
 
             page.goto(studio_url, wait_until="networkidle")
             nav = page.get_by_role("navigation", name="Studio views")
-            assert nav.get_by_role("link", name="Sources").get_attribute("aria-current") == "page"
+            assert nav.get_by_role("link", name="Home").get_attribute("aria-current") == "page"
             assert page.locator("#editor-workspace").is_hidden()
             assert page.evaluate("getComputedStyle(document.documentElement).colorScheme") == "dark"
             assert page.request.get(studio_url + "/static/workspace.js").ok
@@ -69,8 +69,14 @@ def main():
                 page.locator("#import-file").set_input_files(str(fixture))
             assert upload.value.ok, upload.value.text()
             page.wait_for_function("document.querySelector('#video').readyState >= 2")
-            nav.get_by_role("link", name="Editor").click()
-            assert nav.get_by_role("link", name="Editor").get_attribute("aria-current") == "page"
+            page.locator("#project-workspace").wait_for(state="visible")
+            project_url = page.url
+            assert "#project-workspace?key=local%3A" in project_url
+            assert page.get_by_text("Active source", exact=True).count() == 0
+            assert page.get_by_text("Import activity", exact=True).count() == 0
+            assert page.locator("#project-processing").is_hidden()
+            page.locator("#project-editor").click()
+            assert nav.get_by_role("link", name="My Projects").get_attribute("aria-current") == "page"
             assert page.locator("#draft").is_enabled()
             page.locator("#start").fill("0.25")
             page.locator("#end").fill("1.25")
@@ -79,9 +85,12 @@ def main():
             page.locator("#layout").select_option("split")
             for field, value in {"x":"0.55", "y":"0.1", "w":"0.35", "h":"0.45"}.items():
                 page.locator("#face-" + field).fill(value)
-            nav.get_by_role("link", name="Highlights").click()
+            page.locator("#context-project-link").click()
+            assert page.url == project_url
+            page.locator("#project-highlights").click()
             assert page.locator("#editor-workspace").is_hidden()
             page.go_back()
+            page.locator("#project-editor").click()
             assert page.locator("#start").input_value() == "0.25"
             assert page.locator("#layout").input_value() == "split"
             page.get_by_role("tab", name="Export").click()
@@ -90,13 +99,17 @@ def main():
                     page.locator("#" + action).click()
                 assert response.value.ok, response.value.text()
                 assert response.value.json()["kind"] == kind
-            nav.get_by_role("link", name="Saved clips").click()
+            page.locator("#context-project-link").click()
+            assert page.url == project_url
+            page.locator("#project-clips .artifact").nth(1).wait_for(state="visible")
+            assert page.locator("#project-clips .artifact").count() == 2
+            page.locator("#project-saved").click()
             page.reload(wait_until="networkidle")
             assert len(page.request.get(studio_url + "/api/artifacts").json()) == 2
             group = page.locator("#artifacts .artifact-group")
             assert group.count() == 1
             assert "test scene" in group.locator("h3").inner_text()
-            assert nav.get_by_role("link", name="Saved clips").get_attribute("aria-current") == "page"
+            assert nav.get_by_role("link", name="My Projects").get_attribute("aria-current") == "page"
             page.locator("#artifact-filter").select_option("draft")
             assert page.locator("#artifacts .artifact").count() == 1
             assert "1 of 2 saved" in page.locator("#artifact-count").inner_text()
@@ -105,12 +118,14 @@ def main():
             assert page.locator("#artifacts .artifact").count() == 1
             page.locator("#artifact-filter").select_option("all")
             assert page.locator("#artifacts .artifact").count() == 2
-            page.get_by_role("button", name="Restore edit").first.click()
+            page.locator("#artifacts").get_by_role("button", name="Restore edit").first.click()
             page.wait_for_function("document.querySelector('#start').value === '0.25'")
             assert page.locator("#layout").input_value() == "split"
-            assert nav.get_by_role("link", name="Editor").get_attribute("aria-current") == "page"
+            assert page.locator("#editor-workspace").is_visible()
+            page.locator("#context-project-link").click()
+            assert page.url == project_url
             page.set_viewport_size({"width": 390, "height": 844})
-            for name in ("Sources", "Highlights", "Editor", "Saved clips"):
+            for name in ("Home", "My Projects", "Settings"):
                 nav.get_by_role("link", name=name).click()
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), name
             assert not failures, failures

@@ -56,7 +56,7 @@
     if (!cues.length) throw new Error('Paste a timestamped WebVTT or SRT transcript first.');
     return cues;
   }
-  const info = element('p','Choose a source from the source selector above.',{id:'ai-clipper-source-status',class:'hint ai-source-status',role:'status'});
+  const info = element('p','Open a project and choose its footage.',{id:'ai-clipper-source-status',class:'hint ai-source-status',role:'status'});
   const status = element('p','Ready to select a transcript.',{id:'ai-ranking-status',class:'hint ai-clipper-status',role:'status'});
   const form = element('form',undefined,{class:'ai-clipper-form'});
   const sourceMode = choose([['whisper','Local Whisper transcript'], ['paste','Paste timestamped transcript'], ['assemblyai','AssemblyAI transcript (cloud)']],{id:'ai-transcript-mode'});
@@ -183,7 +183,7 @@
       if(Number.isFinite(duration))control.setAttribute('max',duration);
       else control.removeAttribute('max');
     }
-    info.textContent=state.source?'Active source: '+(state.source.youtube_title||state.source.name)+' · '+Number(state.source.duration).toFixed(2)+'s':'Choose a source from the source selector above.';
+    info.textContent=state.source?'Footage: '+(state.source.youtube_title||state.source.name)+' · '+Number(state.source.duration).toFixed(2)+'s':'Open a project and choose its footage.';
     whisperStatus.textContent=state.source?'Checking saved transcripts…':'No source selected.';
     status.textContent=configured?'Pick a transcript and rank it. Nothing exports automatically.':'Checking ranking providers…';
     update();
